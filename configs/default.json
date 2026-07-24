@@ -1,0 +1,54 @@
+{
+    "dataset": {
+        "data_dir": "data/",
+        "dataset_type": "simulated",
+        "data_format": "hdf5",
+        "num_wavelength_bins": 4096,
+        "batch_size": 32,
+        "num_workers": 4,
+        "train_fraction": 0.8,
+        "val_fraction": 0.1,
+        "test_fraction": 0.1,
+        "simulated_fraction": 0.5
+    },
+    "model": {
+        "architecture": "cnn",
+        "num_wavelength_bins": 4096,
+        "num_atm_parameters": 6,
+        "fusion_method": "film",
+        "hidden_dim": 256,
+        "num_layers": 4,
+        "dropout": 0.1,
+        "use_residual": true,
+        "kernel_size": 7,
+        "num_channels": [64, 128, 256, 128, 64]
+    },
+    "training": {
+        "optimizer": {
+            "optimizer_type": "adamw",
+            "learning_rate": 1e-4,
+            "weight_decay": 1e-5
+        },
+        "scheduler": {
+            "scheduler_type": "cosine",
+            "warmup_epochs": 5,
+            "min_lr": 1e-7
+        },
+        "max_epochs": 100,
+        "gradient_clip_val": 1.0,
+        "precision": "16-mixed",
+        "early_stopping_patience": 15,
+        "seed": 42
+    },
+    "loss": {
+        "lambda_telluric": 1.0,
+        "lambda_planet": 0.1,
+        "lambda_smoothness": 0.01,
+        "lambda_physical": 0.1,
+        "enforce_bounds": true,
+        "smoothness_order": 2,
+        "use_real_regularization": true,
+        "lambda_real_smoothness": 0.01,
+        "lambda_real_physical": 0.1
+    }
+}
