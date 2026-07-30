@@ -25,6 +25,16 @@ data/
 *.npy
 *.npz
 
+# Phoenix stellar spectra (large, downloaded separately)
+Phoenix/
+
+# TelFit telluric template outputs
+TelFit/telluric_templates/chunks/
+
+# SLURM logs
+slurm-*.out
+*.log
+
 # Training outputs
 checkpoints/
 logs/
@@ -35,6 +45,10 @@ wandb/
 .DS_Store
 Thumbs.db
 
+# Archives
+*.tar.gz
+*.zip
+
 # Type checking
 .mypy_cache/
 .ruff_cache/
@@ -43,3 +57,21 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+
+# TelFit runtime
+*.lock
+OutputModels/
+
+# SLURM logs
+slurm-*.out
+*.log
+
+Phoenix/
+
+Telfit/telluric_templates
+
+TelFit-1.4.0.tar.gz
+
+
+
+

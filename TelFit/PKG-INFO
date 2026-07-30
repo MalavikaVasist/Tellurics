@@ -1,0 +1,15 @@
+Metadata-Version: 1.1
+Name: TelFit
+Version: 1.4.0
+Summary: A package to fit the telluric absorption in astronomical spectra.
+Home-page: https://telfit.readthedocs.io/
+Author: Kevin Gullikson
+Author-email: kgulliks@astro.as.utexas.edu
+License: The MIT License: http://www.opensource.org/licenses/mit-license.php
+Description: UNKNOWN
+Platform: UNKNOWN
+Classifier: Development Status :: 5 - Production/Stable
+Classifier: Intended Audience :: Developers
+Classifier: Operating System :: OS Independent
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3.7

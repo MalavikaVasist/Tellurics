@@ -1,0 +1,22 @@
+name: tellurics
+
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.10.0
+  - pip=26.1.2
+  - matplotlib=3.10.9
+  - fortranformat=2.0.3
+
+  - pip:
+      - astropy==6.1.7
+      - Cython==3.2.9
+      - fortranformat==2.0.3
+      - lockfile==0.12.2
+      - numpy==1.25.2
+      - pysynphot==2.0.0
+      - PyYAML==6.0.3
+      - scipy==1.9.3
+      - setuptools==80.10.2
