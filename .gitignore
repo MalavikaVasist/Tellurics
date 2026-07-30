@@ -17,8 +17,7 @@ env/
 .vscode/
 *.swp
 
-# Data
-data/
+# Data (generated/downloaded, not source)
 *.h5
 *.hdf5
 *.fits
