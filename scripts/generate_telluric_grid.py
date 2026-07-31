@@ -53,8 +53,8 @@ FIXED_PARAMS = {
 WAVESTART_NM = 500.0
 WAVEEND_NM = 1800.0
 
-STELLAR_H5 = Path("/home/mvasist/Documents/Tellurics/Phoenix/phoenix_training_set.h5")
-OUTDIR = Path("/home/mvasist/Documents/Tellurics/TelFit/telluric_templates")
+STELLAR_H5 = Path("/home/ubuntu/Tellurics/Phoenix/phoenix_spectra.h5")
+OUTDIR = Path("/home/ubuntu/Tellurics/TelFit/telluric_templates")
 CHUNKS_DIR = OUTDIR / "chunks"
 
 
@@ -206,7 +206,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Generate telluric template grid")
     parser.add_argument("--n-samples", type=int, default=262000,
                         help="Total number of LHS samples")
-    parser.add_argument("--batch-size", type=int, default=100,
+    parser.add_argument("--batch-size", type=int, default=1000,
                         help="Samples per chunk/job")
     parser.add_argument("--seed", type=int, default=42,
                         help="Random seed for LHS")
@@ -220,7 +220,7 @@ def parse_args():
                         help="Conda environment for SLURM jobs")
     parser.add_argument("--cpus", type=int, default=1,
                         help="CPUs per SLURM job")
-    parser.add_argument("--ram", type=str, default="8GB",
+    parser.add_argument("--ram", type=str, default="4GB",
                         help="RAM per SLURM job")
     parser.add_argument("--aggregate-ram", type=str, default="32GB",
                         help="RAM for aggregation SLURM job")
