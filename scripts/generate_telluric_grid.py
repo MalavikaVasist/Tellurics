@@ -24,6 +24,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 from scipy.stats import qmc
+from tqdm import tqdm
 
 
 # === Configuration ===
@@ -53,11 +54,11 @@ FIXED_PARAMS = {
 WAVESTART_NM = 500.0
 WAVEEND_NM = 1800.0
 
-# STELLAR_H5 = Path("/home/ubuntu/Tellurics/Phoenix/phoenix_spectra.h5")
-# OUTDIR = Path("/home/ubuntu/Tellurics/TelFit/telluric_templates")
+STELLAR_H5 = Path("/home/ubuntu/Tellurics/Phoenix/phoenix_spectra.h5")
+OUTDIR = Path("/home/ubuntu/Tellurics/TelFit/telluric_templates")
 
-STELLAR_H5 = Path("/home/mvasist/Documents/Tellurics/Phoenix/phoenix_spectra.h5")
-OUTDIR = Path("/home/mvasistDocuments/Tellurics/TelFit/telluric_templates")
+# STELLAR_H5 = Path("/home/mvasist/Documents/Tellurics/Phoenix/phoenix_spectra.h5")
+# OUTDIR = Path("/home/mvasist/Documents/Tellurics/TelFit/telluric_templates")
 
 CHUNKS_DIR = OUTDIR / "chunks"
 
@@ -116,7 +117,7 @@ def generate_batch(array_index: int, n_samples: int, batch_size: int, seed: int 
     labels_list = []
     wavelength = None
 
-    for i, sample in enumerate(batch_samples):
+    for i, sample in enumerate(tqdm(batch_samples)):
         params = dict(zip(param_names, np.round(sample, 2).astype(float)))
 
         if i % 10 == 0:
