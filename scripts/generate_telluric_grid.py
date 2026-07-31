@@ -53,8 +53,12 @@ FIXED_PARAMS = {
 WAVESTART_NM = 500.0
 WAVEEND_NM = 1800.0
 
-STELLAR_H5 = Path("/home/ubuntu/Tellurics/Phoenix/phoenix_spectra.h5")
-OUTDIR = Path("/home/ubuntu/Tellurics/TelFit/telluric_templates")
+# STELLAR_H5 = Path("/home/ubuntu/Tellurics/Phoenix/phoenix_spectra.h5")
+# OUTDIR = Path("/home/ubuntu/Tellurics/TelFit/telluric_templates")
+
+STELLAR_H5 = Path("/home/mvasist/Documents/Tellurics/Phoenix/phoenix_spectra.h5")
+OUTDIR = Path("/home/mvasistDocuments/Tellurics/TelFit/telluric_templates")
+
 CHUNKS_DIR = OUTDIR / "chunks"
 
 
