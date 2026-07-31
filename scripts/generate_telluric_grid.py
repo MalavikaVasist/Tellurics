@@ -30,7 +30,7 @@ from scipy.stats import qmc
 PARAM_RANGES = {
     "pressure": (750, 850),  # hPa
     "temperature": (270, 300),  # Kelvin
-    "angle": (0, 60),  # zenith distance (degrees)
+    "angle": (5, 60),  # zenith distance (degrees); avoid 0 (LBLRTM instability)
     "humidity": (10, 90),  # percent
     "co2": (350, 450),  # ppmv
     "o3": (0.02, 0.08),  # ppmv
@@ -61,7 +61,7 @@ CHUNKS_DIR = OUTDIR / "chunks"
 def get_stellar_wavegrid():
     """Load the stellar wavelength grid (in um)."""
     with h5py.File(STELLAR_H5, "r") as hf:
-        return hf["wavelengths"][0]  # (D,) in um
+        return hf["wavelengths"][:].astype(np.float32)  # (D,) in um
 
 
 def generate_all_samples(n_samples, seed=42):
@@ -104,8 +104,7 @@ def generate_batch(array_index: int, n_samples: int, batch_size: int, seed: int 
     print(f"Chunk {array_index}: samples [{start}:{end}] ({len(batch_samples)} models)")
 
     # Load stellar wavegrid
-    stellar_wavegrid_um = get_stellar_wavegrid()
-    wavegrid_nm = stellar_wavegrid_um * 1000  # um -> nm
+    wavegrid_nm = get_stellar_wavegrid()
 
     # Generate models
     modeler = Modeler()
@@ -114,7 +113,7 @@ def generate_batch(array_index: int, n_samples: int, batch_size: int, seed: int 
     wavelength = None
 
     for i, sample in enumerate(batch_samples):
-        params = dict(zip(param_names, sample))
+        params = dict(zip(param_names, np.round(sample, 2).astype(float)))
 
         if i % 10 == 0:
             print(f"  Chunk {array_index}: {i+1}/{len(batch_samples)}")
@@ -129,13 +128,14 @@ def generate_batch(array_index: int, n_samples: int, batch_size: int, seed: int 
             )
 
             if wavelength is None:
-                wavelength = (model.x / 1000.0).astype(np.float32)  # nm -> um
+                wavelength = (model.x).astype(np.float32)  
 
             transmission_list.append(model.y.astype(np.float32))
             labels_list.append(sample.astype(np.float32))
 
         except Exception as e:
-            print(f"  FAILED at sample {start + i}: {e}")
+            print(f"  FAILED at sample {start + i}: {type(e).__name__}: {e}")
+            print(f"    params: {params}")
             continue
 
     if not transmission_list:

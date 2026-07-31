@@ -65,7 +65,7 @@ num_rundirs = 2 * os.cpu_count() # two times the number of your cpu threads
 TELLURICMODELING = '{}/.TelFit/'.format(os.environ['HOME'])
 
 # URL where the data is stored
-DATA_URL = 'https://zenodo.org/record/1202479/files/'
+DATA_URL = 'https://zenodo.org/records/1202479/files/'
 
 if not TELLURICMODELING.endswith('/'):
     TELLURICMODELING += '/'
