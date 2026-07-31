@@ -501,7 +501,7 @@ class Modeler:
 
         self.Cleanup()  #Un-lock the working directory
 
-        if wavegrid != None:
+        if wavegrid is not None:
             model = DataStructures.xypoint(x=wavelength[::-1], y=transmission[::-1])
             return FittingUtilities.RebinData(model, wavegrid)
 
