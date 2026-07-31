@@ -7,6 +7,11 @@ dist/
 build/
 .eggs/
 
+# Cython / compiled extensions
+*.so
+*.c
+!TelFit/src/FittingUtilities.pyx
+
 # Virtual environments
 .venv/
 venv/
