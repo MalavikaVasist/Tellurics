@@ -65,7 +65,7 @@ CHUNKS_DIR = OUTDIR / "chunks"
 def get_stellar_wavegrid():
     """Load the stellar wavelength grid (in um)."""
     with h5py.File(STELLAR_H5, "r") as hf:
-        return hf["wavelengths"][:].astype(np.float32)  # (D,) in um
+        return hf["wavelengths"][0].astype(np.float32)  # (D,) in um
 
 
 def generate_all_samples(n_samples, seed=42):
