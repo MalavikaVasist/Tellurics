@@ -44,6 +44,14 @@ import DataStructures
 import MakeTape5
 
 
+import numpy as np
+from scipy.optimize import brentq
+
+R = 8.314462618
+M_H2O = 0.01801528
+rho_water = 1000.0
+
+
 DEFAULT_TELLURICMODELING = '{}/.TelFit/'.format(os.environ['HOME'])
 
 
@@ -565,6 +573,89 @@ class Modeler:
 
         return v, spectrum
 
+
+def pwv_from_profile(z_km, P_hpa, T_K, h2o_ppmv):
+
+    z = np.asarray(z_km) * 1000.0
+    P = np.asarray(P_hpa) * 100.0
+    T = np.asarray(T_K)
+    
+    # TelFit H2O is relative to dry air:
+    #
+    # r_H2O = n_H2O / n_dry
+    #
+    # and is supplied in ppmv.
+    r_h2o = np.asarray(h2o_ppmv) * 1e-6
+
+    # Convert dry-air mixing ratio to H2O partial pressure
+    #
+    # P_total = P_dry + P_H2O
+    # r = P_H2O / P_dry
+    #
+    # therefore:
+    # P_H2O = r/(1+r) * P_total
+    P_h2o = (r_h2o / (1.0 + r_h2o)) * P
+
+
+    # H2O mass density
+    rho_h2o = P_h2o * M_H2O / (R * T)
+
+    # Column mass kg/m^2
+    column_mass = np.trapezoid(rho_h2o, z)
+
+    # PWV in mm
+    return column_mass / rho_water * 1000.0
+
+
+def scale_h2o_to_pwv_preserve_surface(
+        z_km,
+        P_hpa,
+        T_K,
+        h2o_ppmv,
+        pwv_target_mm,
+        scale_height_km=2.0):
+
+    z = np.asarray(z_km)
+    h2o = np.asarray(h2o_ppmv)
+
+    # Vertical modification:
+    #
+    # f(z) = 1 + A * (1 - exp(-z/H))
+    #
+    # At z=0: f=1
+    # Therefore surface H2O remains unchanged.
+
+    g = 1.0 - np.exp(-z / scale_height_km)
+
+    def profile_for_A(A):
+        factor = 1.0 + A * g
+        return h2o * factor
+
+    def objective(A):
+        new_h2o = profile_for_A(A)
+
+        pwv = pwv_from_profile(
+            z,
+            P_hpa,
+            T_K,
+            new_h2o
+        )
+
+        return pwv - pwv_target_mm
+
+    # Solve for A
+    A = brentq(objective, -0.99, 100.0)
+
+    h2o_new = profile_for_A(A)
+
+    pwv_new = pwv_from_profile(
+        z,
+        P_hpa,
+        T_K,
+        h2o_new
+    )
+
+    return h2o_new, A, pwv_new
 
 def VaporPressure(T):
     """

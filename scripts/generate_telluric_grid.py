@@ -112,13 +112,13 @@ def generate_batch(array_index: int, n_samples: int, batch_size: int, seed: int 
     wavegrid_nm = get_stellar_wavegrid()
 
     # Generate models
-    modeler = Modeler()
+    modeler = Modeler(print_lblrtm_output=False, debug=False)
     transmission_list = []
     labels_list = []
     wavelength = None
 
     for i, sample in enumerate(tqdm(batch_samples)):
-        params = dict(zip(param_names, np.round(sample, 2).astype(float)))
+        params = dict(zip(param_names, sample.astype(float)))
 
         if i % 10 == 0:
             print(f"  Chunk {array_index}: {i+1}/{len(batch_samples)}")
@@ -225,11 +225,11 @@ def parse_args():
                         help="Conda environment for SLURM jobs")
     parser.add_argument("--cpus", type=int, default=1,
                         help="CPUs per SLURM job")
-    parser.add_argument("--ram", type=str, default="4GB",
+    parser.add_argument("--ram", type=str, default="1GB",
                         help="RAM per SLURM job")
     parser.add_argument("--aggregate-ram", type=str, default="32GB",
                         help="RAM for aggregation SLURM job")
-    parser.add_argument("--time", type=str, default="6:00:00",
+    parser.add_argument("--time", type=str, default="10:00:00",
                         help="Wall time per SLURM job")
     return parser.parse_args()
 
