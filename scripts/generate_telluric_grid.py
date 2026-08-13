@@ -31,28 +31,28 @@ from tqdm import tqdm
 PARAM_RANGES = {
     "pressure": (750, 850),  # hPa
     "temperature": (270, 300),  # Kelvin
-    "angle": (5, 60),  # zenith distance (degrees); avoid 0 (LBLRTM instability)
-    "humidity": (10, 90),  # percent
-    "co2": (350, 450),  # ppmv
-    "o3": (0.02, 0.08),  # ppmv
-    "n2o": (0.30, 0.35),  # ppmv
-    "co": (0.05, 0.30),  # ppmv
-    "ch4": (1.7, 2.1),  # ppmv
-    "o2": (209000, 210000),  # ppmv
-    "no": (1e-5, 1e-3),  # ppmv
-    "so2": (1e-5, 1e-3),  # ppmv
-    "no2": (1e-5, 1e-3),  # ppmv
-    "nh3": (1e-5, 1e-3),  # ppmv
-    "hno3": (1e-4, 1e-3),  # ppmv
+    "humidity": (10, 100),  # percent
 }
 
 FIXED_PARAMS = {
     "lat": 30.6,
     "alt": 2.1,
+    "co2": 368.5,  # ppmv
+    "o3": 3.9e-2,  # ppmv
+    "n2o": 1e-4,  # ppmv
+    "co": 0.14,  # ppmv
+    "ch4": 1.8,  # ppmv
+    "o2": 2.1e5,  # ppmv
+    "no": 1.1e-19,  # ppmv
+    "so2": 1e-4,  # ppmv
+    "no2": 1e-4,  # ppmv
+    "nh3": 1e-4,  # ppmv
+    "hno3": 5.6e-4,  # ppmv
+    "angle": 45.0, #degrees
 }
 
-WAVESTART_NM = 500.0
-WAVEEND_NM = 1800.0
+WAVESTART_NM = 800.0
+WAVEEND_NM = 950.0
 
 # STELLAR_H5 = Path("/home/ubuntu/Tellurics/Phoenix/phoenix_spectra.h5")
 # OUTDIR = Path("/home/ubuntu/Tellurics/TelFit/telluric_templates")
@@ -211,7 +211,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Generate telluric template grid")
     parser.add_argument("--n-samples", type=int, default=262000,
                         help="Total number of LHS samples")
-    parser.add_argument("--batch-size", type=int, default=1000,
+    parser.add_argument("--batch-size", type=int, default=200,
                         help="Samples per chunk/job")
     parser.add_argument("--seed", type=int, default=42,
                         help="Random seed for LHS")

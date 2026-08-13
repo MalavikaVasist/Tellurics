@@ -601,61 +601,158 @@ def pwv_from_profile(z_km, P_hpa, T_K, h2o_ppmv):
     rho_h2o = P_h2o * M_H2O / (R * T)
 
     # Column mass kg/m^2
-    column_mass = np.trapezoid(rho_h2o, z)
+    column_mass = np.trapz(rho_h2o, z)
 
     # PWV in mm
     return column_mass / rho_water * 1000.0
 
 
-def scale_h2o_to_pwv_preserve_surface(
+def h2o_profile_from_pwv(
         z_km,
         P_hpa,
         T_K,
-        h2o_ppmv,
+        mipas_h2o_ppmv,
+        site_alt_km,
+        site_h2o_ppmv,
         pwv_target_mm,
-        scale_height_km=2.0):
+        alpha_bounds=(0.01, 10.0)):
+    """
+    Modify a MIPAS H2O profile so that:
 
-    z = np.asarray(z_km)
-    h2o = np.asarray(h2o_ppmv)
+    1. H2O at the observatory altitude equals the observed
+       surface H2O abundance.
 
-    # Vertical modification:
+    2. The integrated PWV equals the observed PWV.
+
+    The vertical shape is controlled by one parameter alpha:
+
+        q_new(z) = q_site *
+                   [q_MIPAS(z) / q_MIPAS(z_site)]**alpha
+
+    alpha = 1:
+        preserves the normalized MIPAS vertical shape.
+
+    alpha < 1:
+        makes the profile flatter than MIPAS.
+
+    alpha > 1:
+        makes the profile decrease faster with altitude than MIPAS.
+    """
+
+    z = np.asarray(z_km, dtype=float)
+    P = np.asarray(P_hpa, dtype=float)
+    T = np.asarray(T_K, dtype=float)
+    q_mipas = np.asarray(mipas_h2o_ppmv, dtype=float)
+
+    # ---------------------------------------------------------
+    # Only use the atmosphere above the observatory.
+    # ---------------------------------------------------------
+
+    mask = z >= site_alt_km
+
+    z = z[mask]
+    P = P[mask]
+    T = T[mask]
+    q_mipas = q_mipas[mask]
+
+    # ---------------------------------------------------------
+    # MIPAS H2O abundance at the observatory altitude
+    # ---------------------------------------------------------
+
+    q_mipas_site = np.interp(
+        site_alt_km,
+        z,
+        q_mipas
+    )
+
+    # ---------------------------------------------------------
+    # Normalize MIPAS to its value at the site.
     #
-    # f(z) = 1 + A * (1 - exp(-z/H))
-    #
-    # At z=0: f=1
-    # Therefore surface H2O remains unchanged.
+    # shape(site) = 1
+    # ---------------------------------------------------------
 
-    g = 1.0 - np.exp(-z / scale_height_km)
+    shape = q_mipas / q_mipas_site
 
-    def profile_for_A(A):
-        factor = 1.0 + A * g
-        return h2o * factor
+    # ---------------------------------------------------------
+    # Define the family of possible H2O profiles.
+    # ---------------------------------------------------------
 
-    def objective(A):
-        new_h2o = profile_for_A(A)
+    def profile(alpha):
+
+        q_new = (
+            site_h2o_ppmv *
+            shape**alpha
+        )
+
+        return q_new
+
+    # ---------------------------------------------------------
+    # Find alpha such that the integrated PWV is observed PWV.
+    # ---------------------------------------------------------
+
+    def objective(alpha):
+
+        q_new = profile(alpha)
 
         pwv = pwv_from_profile(
             z,
-            P_hpa,
-            T_K,
-            new_h2o
+            P,
+            T,
+            q_new
         )
 
         return pwv - pwv_target_mm
 
-    # Solve for A
-    A = brentq(objective, -0.99, 100.0)
+    # ---------------------------------------------------------
+    # Solve for alpha.
+    # ---------------------------------------------------------
 
-    h2o_new = profile_for_A(A)
-
-    pwv_new = pwv_from_profile(
-        z,
-        P_hpa,
-        T_K,
-        h2o_new
+    alpha = brentq(
+        objective,
+        alpha_bounds[0],
+        alpha_bounds[1]
     )
 
-    return h2o_new, A, pwv_new
+    # ---------------------------------------------------------
+    # Final H2O profile
+    # ---------------------------------------------------------
+
+    q_new = profile(alpha)
+
+    pwv_final = pwv_from_profile(
+        z,
+        P,
+        T,
+        q_new
+    )
+
+    return q_new, alpha, pwv_final
+
+
+def airmass_from_telfit_angle(angle_deg):
+    return 1.0 / np.cos(np.deg2rad(angle_deg))
+
+
+def real_airmass_to_telfit_angle(airmass):
+    """
+    Convert a measured/accurate airmass to the
+    effective zenith angle expected by TelFit.
+
+    Parameters
+    ----------
+    airmass : float
+        Astronomical airmass, X >= 1.
+
+    Returns
+    -------
+    angle_deg : float
+        Effective zenith distance in degrees.
+    """
+    if airmass < 1:
+        raise ValueError("Airmass must be >= 1.")
+
+    return np.degrees(np.arccos(1.0 / airmass))
+
 
 def VaporPressure(T):
     """
