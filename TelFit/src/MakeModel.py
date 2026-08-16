@@ -128,6 +128,7 @@ class Modeler:
         indices = {}
         self.debug = debug
         self.print_lblrtm_output = print_lblrtm_output
+
         if not TelluricModelingDirRoot.endswith("/"):
             TelluricModelingDirRoot = TelluricModelingDirRoot + "/"
         if not 'rundir1' in os.listdir(TelluricModelingDirRoot):
@@ -138,15 +139,30 @@ class Modeler:
                                        'environment variable TELLURICMODELING is not set!'.format(
                     TelluricModelingDirRoot))
         self.TelluricModelingDirRoot = TelluricModelingDirRoot
+        self.nmolecules= nmolecules
+
+        self.Atmosphere, self.layers = self.loading_mipas(TelluricModelingDirRoot+ "rundir1")
 
         #Determine working directories
-        self.FindWorkingDirectory()
-        TelluricModelingDir = self.TelluricModelingDir
-        ModelDir = self.ModelDir
+        # self.FindWorkingDirectory()
 
+        # Do not allocate one here.
+        self.TelluricModelingDir = None
+        self.ModelDir = None
+        self.lock = None
+
+        # TelluricModelingDir = self.TelluricModelingDir
+        # ModelDir = self.ModelDir
+
+    def loading_mipas(self, TelluricModelingDir):
+        
         #Read in MIPAS atmosphere profile for upper atmosphere layers
-        if debug:
+        if self.debug:
             logging.info("Generating new atmosphere profile")
+
+        Atmosphere = defaultdict(list)
+        indices = {}
+
         filename = TelluricModelingDir + "MIPAS_atmosphere_profile"
         infile = open(filename)
         lines = infile.readlines()
@@ -189,21 +205,18 @@ class Modeler:
                 Atmosphere[layers[int(j * levelsperline + i)]].append(float(level))
                 Atmosphere[layers[int(j * levelsperline + i)]].append([])
         #Abundances
-        for k in range(1, nmolecules + 1):
+        for k in range(1, self.nmolecules + 1):
             for j in range(linespersection):
                 line = lines[j + indices[MoleculeNumbers[k]] + 1]
                 levels = line.split()
                 for i, level in enumerate(levels):
                     Atmosphere[layers[int(j * levelsperline + i)]][2].append(float(level))
 
+        # #Save some local variables as class variables, so that other functions can use them
+        # self.Atmosphere = Atmosphere
+        # self.layers = layers
 
-        #Save some local variables as class variables, so that other functions can use them
-        self.Atmosphere = Atmosphere
-        self.layers = layers
-        self.nmolecules = nmolecules
-
-        self.Cleanup()
-        return
+        return Atmosphere, layers
 
 
     def EditProfile(self, profilename, profile_height, profile_value):
@@ -221,6 +234,8 @@ class Modeler:
         :return: None
 
         """
+
+
         #Translate the (string) name of the profile to a number
         profilenum = -1
         if profilename.lower() == "pressure":
@@ -286,18 +301,29 @@ class Modeler:
         self.Atmosphere = Atmosphere
 
 
+    # def Cleanup(self):
+    #     """
+    #       Release the lock on the directory. This can be called on its own, but
+    #       should never need to be.
+    #     """
+    #     lock = self.lock
+    #     #Unlock directory
+    #     try:
+    #         lock.release()
+    #     except lockfile.NotLocked:
+    #         warnings.warn("The model directory was somehow unlocked prematurely!")
+    #     return
+
+
     def Cleanup(self):
-        """
-          Release the lock on the directory. This can be called on its own, but
-          should never need to be.
-        """
-        lock = self.lock
-        #Unlock directory
+
+        if self.lock is None:
+            return
+
         try:
-            lock.release()
+            self.lock.release()
         except lockfile.NotLocked:
             warnings.warn("The model directory was somehow unlocked prematurely!")
-        return
 
 
     def FindWorkingDirectory(self):
@@ -334,11 +360,43 @@ class Modeler:
         self.ModelDir = ModelDir
         self.lock = lock
 
+    def SetWorkingDirectory(self, workdir):
+        """
+        Set an isolated working directory for this Modeler instance.
+
+        The directory must contain the files required by LBLRTM:
+            ParameterFile
+            runlblrtm_v3.sh
+            LBLRTM executable/support files
+            etc.
+        """
+
+        workdir = os.path.abspath(workdir)
+
+        if not os.path.isdir(workdir):
+            raise ModelerException(
+                "LBLRTM working directory does not exist: {}".format(workdir)
+            )
+
+        if not workdir.endswith("/"):
+            workdir += "/"
+
+        self.TelluricModelingDir = workdir
+
+        # MakeModel expects ModelDir to exist
+        self.ModelDir = os.path.join(workdir, "OutputModels/")
+
+        os.makedirs(self.ModelDir, exist_ok=True)
+
+        # No global lock is needed because this directory belongs
+        # exclusively to this SLURM job.
+        self.lock = None
+
 
     def MakeModel(self, pressure=795.0, temperature=283.0, lowfreq=4000, highfreq=4600, angle=45.0, humidity=50.0,
                   co2=368.5, o3=3.9e-2, n2o=0.32, co=0.14, ch4=1.8, o2=2.1e5, no=1.1e-19, so2=1e-4, no2=1e-4, nh3=1e-4,
                   hno3=5.6e-4, lat=30.6, alt=2.1, wavegrid=None, resolution=None, save=False, libfile=None,
-                  vac2air=True):
+                  vac2air=True, workdir= None):
         """
         Here is the important function! All of the variables have default values,
           which you will want to override for any realistic use.
@@ -379,7 +437,12 @@ class Modeler:
                                is in nanometers and the y-axis is in fractional transmission.
         """
 
-        self.FindWorkingDirectory()
+        if workdir is None:
+            self.FindWorkingDirectory()
+        else:
+            self.SetWorkingDirectory(workdir)
+
+        # self.FindWorkingDirectory()
 
         #Make the class variables local
         TelluricModelingDir = self.TelluricModelingDir

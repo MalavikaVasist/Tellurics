@@ -3,17 +3,17 @@
 Generate telluric template grid in parallel using dawgz + SLURM.
 
 Usage:
-    # Submit parallel generation + aggregation jobs:
-    python generate_telluric_grid.py --parallel
+    # Submit all generation jobs in parallel on SLURM, followed by an
+    # aggregation job that starts automatically after generation
+    # jobs have completed:
+    python generate_telluric_grid.py --parallel --n-samples 262000 --batch-size 200
 
-    # Generate a single batch manually:
+    # Generate a single batch manually.
+    # Here, --array-index specifies the batch/chunk index:
     python generate_telluric_grid.py --array-index 5
 
-    # Aggregate only (as a SLURM job via dawgz):
-    python generate_telluric_grid.py --aggregate --parallel
-
-    # Aggregate locally:
-    python generate_telluric_grid.py --aggregate
+    # Aggregate existing chunk files locally:
+    python generate_telluric_grid.py --aggregate --n-samples 262000 --batch-size 200
 """
 
 import argparse
@@ -25,6 +25,8 @@ import h5py
 import numpy as np
 from scipy.stats import qmc
 from tqdm import tqdm
+
+import shutil
 
 
 # === Configuration ===
@@ -63,8 +65,36 @@ OUTDIR = Path("/home/mvasist/Documents/Tellurics/TelFit/telluric_templates")
 CHUNKS_DIR = OUTDIR / "chunks"
 
 
+def create_slurm_workspace():
+
+    slurm_tmpdir = os.environ.get("SLURM_TMPDIR")
+
+    if slurm_tmpdir is None:
+        raise RuntimeError(
+            "SLURM_TMPDIR is not available. "
+            "This script is intended to run under SLURM."
+        )
+
+    job_id = os.environ.get("SLURM_JOB_ID", "local")
+    array_id = os.environ.get("SLURM_ARRAY_TASK_ID", "0")
+
+    workdir = Path(slurm_tmpdir) / f"telfit-{job_id}-{array_id}"
+    workdir.mkdir(parents=True, exist_ok=True)
+
+    # Use rundir1 as the template
+    template = Path.home() / ".TelFit" / "rundir1"
+
+    shutil.copytree(
+        template,
+        workdir,
+        dirs_exist_ok=True
+    )
+
+    return workdir
+
+
 def get_stellar_wavegrid():
-    """Load the stellar wavelength grid (in um)."""
+    """Load the stellar wavelength grid (in nm)."""
     with h5py.File(STELLAR_H5, "r") as hf:
         return hf["wavelengths"][0].astype(np.float32)  # (D,) in um
 
@@ -95,6 +125,8 @@ def generate_batch(array_index: int, n_samples: int, batch_size: int, seed: int 
         print(f"Chunk {array_index} already exists, skipping.")
         return
 
+    workdir = create_slurm_workspace()
+
     # Generate samples (same seed = same LHS for all workers)
     param_names, all_samples = generate_all_samples(n_samples, seed=seed)
 
@@ -116,6 +148,7 @@ def generate_batch(array_index: int, n_samples: int, batch_size: int, seed: int 
     transmission_list = []
     labels_list = []
     wavelength = None
+    failed_indices = []
 
     for i, sample in enumerate(tqdm(batch_samples)):
         params = dict(zip(param_names, sample.astype(float)))
@@ -128,6 +161,7 @@ def generate_batch(array_index: int, n_samples: int, batch_size: int, seed: int 
                 lowfreq=1e7 / WAVEEND_NM,
                 highfreq=1e7 / WAVESTART_NM,
                 wavegrid=wavegrid_nm,
+                workdir = str(workdir),
                 **params,
                 **FIXED_PARAMS,
             )
@@ -138,9 +172,12 @@ def generate_batch(array_index: int, n_samples: int, batch_size: int, seed: int 
             transmission_list.append(model.y.astype(np.float32))
             labels_list.append(sample.astype(np.float32))
 
+        
+
         except Exception as e:
             print(f"  FAILED at sample {start + i}: {type(e).__name__}: {e}")
             print(f"    params: {params}")
+            failed_indices.append(start + i)
             continue
 
     if not transmission_list:
@@ -154,9 +191,12 @@ def generate_batch(array_index: int, n_samples: int, batch_size: int, seed: int 
         hf.create_dataset("wavelength", data=wavelength)
         hf.create_dataset("transmission", data=transmission)
         hf.create_dataset("labels", data=labels)
+        hf.create_dataset("failed_indices", data=np.asarray(failed_indices, dtype=np.int64))
+        
+
         hf["labels"].attrs["columns"] = param_names
 
-    print(f"Chunk {array_index} done: {len(transmission_list)} models -> {chunk_path}")
+    print(f"Chunk {array_index} done: {len(transmission_list)} models succeeded-> {chunk_path}, {len(failed_indices)} failed")
 
 
 def aggregate():
@@ -174,6 +214,7 @@ def aggregate():
     all_labels = []
     wavelength = None
     param_names = None
+
 
     for cf in chunk_files:
         with h5py.File(cf, "r") as hf:
@@ -270,7 +311,7 @@ def main():
         return
 
     # === Non-parallel modes ===
-
+       
     # Aggregate only
     if args.aggregate:
         aggregate()
