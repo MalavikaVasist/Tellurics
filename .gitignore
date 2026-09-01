@@ -30,7 +30,10 @@ env/
 *.npz
 
 # Phoenix stellar spectra (large, downloaded separately)
-Phoenix/
+Phoenix/downloads/
+Phoenix/high_res/
+Phoenix/medium_res/
+
 
 # Generated simulation data (downloaded/produced, not source)
 data/
