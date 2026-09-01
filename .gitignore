@@ -32,6 +32,9 @@ env/
 # Phoenix stellar spectra (large, downloaded separately)
 Phoenix/
 
+# Generated simulation data (downloaded/produced, not source)
+data/
+
 # TelFit telluric template outputs
 TelFit/telluric_templates/chunks/
 

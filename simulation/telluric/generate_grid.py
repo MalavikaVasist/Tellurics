@@ -18,7 +18,6 @@ Usage:
 
 import argparse
 import sys
-import os
 from pathlib import Path
 
 import h5py
@@ -26,7 +25,11 @@ import numpy as np
 from scipy.stats import qmc
 from tqdm import tqdm
 
-import shutil
+# Make the repo root importable so `simulation` is a package when run as a script
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_REPO_ROOT))
+from simulation.utils.spectral import build_constant_R_grid, convolve_and_resample
+from simulation.utils.running_hpc import create_slurm_workspace
 
 
 # === Configuration ===
@@ -56,48 +59,31 @@ FIXED_PARAMS = {
 WAVESTART_NM = 800.0
 WAVEEND_NM = 950.0
 
-# STELLAR_H5 = Path("/home/ubuntu/Tellurics/Phoenix/phoenix_spectra.h5")
-# OUTDIR = Path("/home/ubuntu/Tellurics/TelFit/telluric_templates")
+# Target resolving power and output grid sampling (must match Phoenix pool)
+TARGET_R = 100_000
+SAMPLES_PER_RESEL = 3.0
+WAVE_PADDING_NM = 0.5  # extend native TelFit range for clean convolution edges
 
-STELLAR_H5 = Path("/home/mvasist/Documents/Tellurics/Phoenix/phoenix_spectra.h5")
-OUTDIR = Path("/home/mvasist/Documents/Tellurics/TelFit/telluric_templates")
+# Repo layout: this file is at simulation/telluric/generate_grid.py
+REPO_ROOT = _REPO_ROOT
 
+# Output telluric templates under data/telluric/
+OUTDIR = REPO_ROOT / "data" / "telluric"
 CHUNKS_DIR = OUTDIR / "chunks"
 
-
-def create_slurm_workspace():
-
-    slurm_tmpdir = os.environ.get("SLURM_TMPDIR")
-
-    if slurm_tmpdir is None:
-        raise RuntimeError(
-            "SLURM_TMPDIR is not available. "
-            "This script is intended to run under SLURM."
-        )
-
-    job_id = os.environ.get("SLURM_JOB_ID", "local")
-    array_id = os.environ.get("SLURM_ARRAY_TASK_ID", "0")
-
-    workdir = Path(slurm_tmpdir) / f"telfit-{job_id}-{array_id}"
-    workdir.mkdir(parents=True, exist_ok=True)
-
-    # Use rundir1 as the template
-    template = Path.home() / ".TelFit" / "rundir1"
-
-    shutil.copytree(
-        template,
-        workdir,
-        dirs_exist_ok=True, 
-        symlinks=True,
-    )
-
-    return workdir
+# TelFit source (vendored software)
+TELFIT_SRC = REPO_ROOT / "TelFit" / "src"
 
 
-def get_stellar_wavegrid():
-    """Load the stellar wavelength grid (in nm)."""
-    with h5py.File(STELLAR_H5, "r") as hf:
-        return hf["wavelengths"][0].astype(np.float32)  # (D,) in um
+def get_output_wavegrid():
+    """Build the constant-R output wavelength grid (in nm).
+
+    This matches the Phoenix pool grid so tellurics and stellar spectra
+    share the same wavelength axis.
+    """
+    return build_constant_R_grid(
+        WAVESTART_NM, WAVEEND_NM, TARGET_R, SAMPLES_PER_RESEL,
+    ).astype(np.float64)
 
 
 def generate_all_samples(n_samples, seed=42):
@@ -115,7 +101,7 @@ def generate_all_samples(n_samples, seed=42):
 
 def generate_batch(array_index: int, n_samples: int, batch_size: int, seed: int = 42):
     """Generate a single batch of telluric models and save to HDF5 chunk."""
-    sys.path.insert(0, str(Path(__file__).parent.parent / "TelFit" / "src"))
+    sys.path.insert(0, str(TELFIT_SRC))
     from telfit import Modeler
 
     OUTDIR.mkdir(exist_ok=True)
@@ -141,14 +127,18 @@ def generate_batch(array_index: int, n_samples: int, batch_size: int, seed: int 
     batch_samples = all_samples[start:end]
     print(f"Chunk {array_index}: samples [{start}:{end}] ({len(batch_samples)} models)")
 
-    # Load stellar wavegrid
-    wavegrid_nm = get_stellar_wavegrid()
+    # Build the constant-R output wavegrid (shared with Phoenix pool)
+    wavegrid_nm = get_output_wavegrid()
 
-    # Generate models
+    # Generate native TelFit models over a padded range so the convolution
+    # kernel has clean edges, then convolve to TARGET_R and resample.
+    lowfreq = 1e7 / (WAVEEND_NM + WAVE_PADDING_NM)
+    highfreq = 1e7 / (WAVESTART_NM - WAVE_PADDING_NM)
+
     modeler = Modeler(print_lblrtm_output=False, debug=False)
     transmission_list = []
     labels_list = []
-    wavelength = None
+    wavelength = wavegrid_nm.astype(np.float32)
     failed_indices = []
 
     for i, sample in enumerate(tqdm(batch_samples)):
@@ -158,22 +148,28 @@ def generate_batch(array_index: int, n_samples: int, batch_size: int, seed: int 
             print(f"  Chunk {array_index}: {i+1}/{len(batch_samples)}")
 
         try:
+            # Native LBLRTM model (no wavegrid, no resolution).
             model = modeler.MakeModel(
-                lowfreq=1e7 / WAVEEND_NM,
-                highfreq=1e7 / WAVESTART_NM,
-                wavegrid=wavegrid_nm,
-                workdir = str(workdir),
+                lowfreq=lowfreq,
+                highfreq=highfreq,
+                workdir=str(workdir),
+                vac2air=False,
+                libfile="",
+                save=False,
                 **params,
                 **FIXED_PARAMS,
             )
 
-            if wavelength is None:
-                wavelength = (model.x).astype(np.float32)  
+            # Convolve to TARGET_R and resample onto the shared output grid.
+            _, transmission = convolve_and_resample(
+                np.asarray(model.x, dtype=np.float64),
+                np.asarray(model.y, dtype=np.float64),
+                target_R=TARGET_R,
+                target_wave=wavegrid_nm,
+            )
 
-            transmission_list.append(model.y.astype(np.float32))
+            transmission_list.append(transmission.astype(np.float32))
             labels_list.append(sample.astype(np.float32))
-
-        
 
         except Exception as e:
             print(f"  FAILED at sample {start + i}: {type(e).__name__}: {e}")
@@ -242,6 +238,8 @@ def aggregate():
             hf.attrs[f"fixed_{k}"] = v
         hf.attrs["wavestart_nm"] = WAVESTART_NM
         hf.attrs["waveend_nm"] = WAVEEND_NM
+        hf.attrs["target_resolution"] = TARGET_R
+        hf.attrs["samples_per_resolution_element"] = SAMPLES_PER_RESEL
 
     print(f"\nSaved: {final_path}")
     print(f"  wavelength:   {wavelength.shape}")
