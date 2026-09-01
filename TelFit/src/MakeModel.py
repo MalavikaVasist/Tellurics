@@ -163,6 +163,8 @@ class Modeler:
         Atmosphere = defaultdict(list)
         indices = {}
 
+        if not TelluricModelingDir.endswith("/"):
+            TelluricModelingDir = TelluricModelingDir + "/"
         filename = TelluricModelingDir + "MIPAS_atmosphere_profile"
         infile = open(filename)
         lines = infile.readlines()

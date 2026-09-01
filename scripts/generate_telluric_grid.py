@@ -87,7 +87,8 @@ def create_slurm_workspace():
     shutil.copytree(
         template,
         workdir,
-        dirs_exist_ok=True
+        dirs_exist_ok=True, 
+        symlinks=True,
     )
 
     return workdir
