@@ -34,7 +34,7 @@ Usage
 -----
     # Submit all condition frames in parallel on SLURM + an aggregation job:
     python simulation/telluric/generate_grid_timeseries.py --parallel \
-        --conditions ~/TFM_DATA/telfit/conditions/telfit_condition_series.h5 \
+        --conditions <path>/telfit_condition_series.h5 \
         --batch-size 200
 
     # Generate a single batch under SLURM:
@@ -71,7 +71,7 @@ from simulation.utils.running_hpc import create_slurm_workspace
 REPO_ROOT = _REPO_ROOT
 
 DEFAULT_CONDITIONS_H5 = (
-    REPO_ROOT / "simulation" / "site_parameters" / "telfit_condition_series.h5"
+    REPO_ROOT / "site_parameter_evolution" / "telfit_condition_series.h5"
 )
 DEFAULT_OUTDIR = REPO_ROOT / "data" / "telluric_timeseries"
 
