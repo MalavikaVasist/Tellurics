@@ -113,12 +113,6 @@ def get_output_wavegrid():
     return build_constant_R_grid(
         WAVESTART_NM, WAVEEND_NM, TARGET_R, SAMPLES_PER_RESEL,
     ).astype(np.float64)
-
-def get_workdir(slurm: bool, outdir: Path) -> Path:
-    """Return a working directory for TelFit."""
-    if slurm:
-        return create_slurm_workspace()
-    return None
     
 def generate_batch(
     array_index: int,
@@ -126,7 +120,7 @@ def generate_batch(
     batch_size: int,
     conditions_h5: Path,
     outdir: Path,
-    workdir: Path,
+    workdir: Path | None, 
     seed: int = 42,
 ):
     """Generate a single batch of telluric models and save to an HDF5 chunk."""
@@ -188,7 +182,7 @@ def generate_batch(
                     highfreq=highfreq,
                     lat=observatory["lat"],
                     alt=observatory["alt"],
-                    workdir=str(workdir),
+                    workdir= str(workdir) if isinstance(workdir, Path) else None,
                     vac2air=False,
                     libfile="",
                     save=False,
@@ -394,15 +388,14 @@ def main():
         from dawgz import job, after, schedule
 
         @job(array=n_jobs, cpus=args.cpus, ram=args.ram, time=args.time)
-        def telluric_job(array_index: int):
-            workdir = get_workdir(use_slurm=True)
+        def telluric_job(array_index: int): 
             generate_batch(
                 array_index=array_index,
                 n_samples=n_samples,
                 batch_size=args.batch_size,
                 conditions_h5=conditions_h5,
                 outdir=outdir,
-                workdir=workdir,
+                workdir=create_slurm_workspace(),
                 seed=args.seed,
             )
 

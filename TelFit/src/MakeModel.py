@@ -440,6 +440,7 @@ class Modeler:
         """
 
         if workdir is None:
+            print("Using default working directory.")
             self.FindWorkingDirectory()
         else:
             self.SetWorkingDirectory(workdir)
