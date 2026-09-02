@@ -37,10 +37,15 @@ Usage
         --conditions <path>/telfit_condition_series.h5 \
         --batch-size 200
 
-    # Generate a single batch under SLURM:
+    # Generate a single batch locally (useful for testing):
     python simulation/telluric/generate_grid_timeseries.py \
         --conditions <path>/telfit_condition_series.h5 \
         --array-index 5 --batch-size 200
+
+    # Generate all batches sequentially locally:
+    python simulation/telluric/generate_grid_timeseries.py \
+        --conditions <path>/telfit_condition_series.h5 \
+        --batch-size 200
 
     # Aggregate existing chunks:
     python simulation/telluric/generate_grid_timeseries.py \
@@ -48,6 +53,7 @@ Usage
 """
 
 import argparse
+import shutil
 import sys
 import warnings
 from pathlib import Path
@@ -108,13 +114,19 @@ def get_output_wavegrid():
         WAVESTART_NM, WAVEEND_NM, TARGET_R, SAMPLES_PER_RESEL,
     ).astype(np.float64)
 
-
+def get_workdir(slurm: bool, outdir: Path) -> Path:
+    """Return a working directory for TelFit."""
+    if slurm:
+        return create_slurm_workspace()
+    return None
+    
 def generate_batch(
     array_index: int,
     n_samples: int,
     batch_size: int,
     conditions_h5: Path,
     outdir: Path,
+    workdir: Path,
     seed: int = 42,
 ):
     """Generate a single batch of telluric models and save to an HDF5 chunk."""
@@ -133,8 +145,6 @@ def generate_batch(
     if chunk_path.exists():
         print(f"Chunk {array_index} already exists, skipping.")
         return
-
-    workdir = create_slurm_workspace()
 
     n_series, n_frames, observatory = read_condition_layout(conditions_h5)
     total_available = n_series * n_frames
@@ -331,11 +341,11 @@ def parse_args():
     parser.add_argument("--seed", type=int, default=42,
                         help="Retained for CLI compatibility; conditions are deterministic")
     parser.add_argument("--array-index", type=int, default=None,
-                        help="Generate a single chunk (for manual runs)")
+                        help="Generate a single chunk (for manual runs) locally")
     parser.add_argument("--aggregate", action="store_true",
                         help="Aggregate chunk files into final HDF5")
     parser.add_argument("--parallel", action="store_true",
-                        help="Submit SLURM jobs via dawgz")
+                        help="Submit SLURM jobs via dawgz to SLURM")
     parser.add_argument("--conda-env", type=str, default="tellurics",
                         help="Conda environment for SLURM jobs")
     parser.add_argument("--cpus", type=int, default=1, help="CPUs per SLURM job")
@@ -378,18 +388,21 @@ def main():
     print(f"Output wavelength points:    {len(wavegrid)}")
     print(f"Output directory:            {outdir}")
 
+    
     # === Parallel mode: submit generation + aggregation with dependency ===
     if args.parallel:
         from dawgz import job, after, schedule
 
         @job(array=n_jobs, cpus=args.cpus, ram=args.ram, time=args.time)
         def telluric_job(array_index: int):
+            workdir = get_workdir(use_slurm=True)
             generate_batch(
                 array_index=array_index,
                 n_samples=n_samples,
                 batch_size=args.batch_size,
                 conditions_h5=conditions_h5,
                 outdir=outdir,
+                workdir=workdir,
                 seed=args.seed,
             )
 
@@ -419,6 +432,7 @@ def main():
             batch_size=args.batch_size,
             conditions_h5=conditions_h5,
             outdir=outdir,
+            workdir= None,
             seed=args.seed,
         )
         return
@@ -432,6 +446,7 @@ def main():
             batch_size=args.batch_size,
             conditions_h5=conditions_h5,
             outdir=outdir,
+            workdir= None,
             seed=args.seed,
         )
 
