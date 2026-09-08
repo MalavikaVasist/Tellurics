@@ -17,14 +17,17 @@ class ModelOutput:
         telluric: Predicted telluric transmission spectrum. Shape: (B, N_wavelength).
         planet: Predicted or recovered planet spectrum. Shape: (B, N_wavelength).
         uncertainty: Predictive uncertainty estimate. Shape: (B, N_wavelength).
+        params: Predicted per-sample/scalar parameters (e.g. telluric / gas
+            parameters per exposure). Shape: (B, T, P).
         latent: Latent embedding from the encoder. Shape: (B, D_latent).
         attention_weights: Attention maps if available. Shape varies by architecture.
         intermediate_features: Dictionary of intermediate feature representations.
     """
 
-    telluric: torch.Tensor
+    telluric: torch.Tensor | None = None
     planet: torch.Tensor | None = None
     uncertainty: torch.Tensor | None = None
+    params: torch.Tensor | None = None
     latent: torch.Tensor | None = None
     attention_weights: torch.Tensor | None = None
     intermediate_features: dict[str, torch.Tensor] | None = None

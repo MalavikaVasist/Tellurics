@@ -1,0 +1,64 @@
+# Experiment 2: whole-night telluric *parameter* regression with temporal_conv.
+#
+# Instead of reconstructing the full N-sample transmission, the model regresses
+# the P telluric / atmospheric parameters that parametrize each exposure (e.g.
+# via a TelFit-style forward model):
+#
+#   X = T*S  (B, T=73, N=51556)        ->  param_pred (B, T, 20)
+#   metadata (B, T, 3)  per exposure        loss = MSE(param_input - param_pred)
+#
+# Pipeline (tellurics.models.temporal_conv.TelluricModel, registry id
+# "temporal_conv"):
+#   1. shared 1D-CNN encodes each exposure of X       ->  Z (B, 73, 64)
+#   2. MetadataEncoding maps per-exposure metadata to a 16-dim code
+#      M_code (B, 73, 16), concatenated with Z         ->  tokens (B, 73, 80)
+#   3. the temporal Perceiver projects the 80-dim tokens down to 64 and
+#      compresses the 73 exposures into Q=16 learned latent tokens
+#   4. the latent is expanded back to per-exposure codes H_T (B, 73, 64)
+#   5. a shared MLP (ParamDecoder) decodes each code to 20 parameters
+#
+# This manifest mirrors the runnable config `configs/temporal_conv.json`
+# (same pydantic schema / enum values as experiment1).  The training wiring
+# that feeds per-exposure `param_input` targets and computes the MSE loss is
+# still pending; only the model-level change is in place.
+
+model:
+  architecture: temporal_conv            # ModelArchitecture enum value
+  num_wavelength_bins: 51556             # spectral samples N per exposure
+  n_frames_per_series: 73                # exposures T per night
+  num_queries: 16                        # learned latent tokens Q (temporal)
+  spectral_latent_dim: 64                # per-exposure spectral code dim d
+  metadata_dim: 3                        # per-exposure metadata width P (B, T, P)
+  metadata_enc_dim: 16                   # encoded metadata code width C
+  metadata_enc_hidden: null              # metadata MLP hidden (null -> auto)
+  param_dim: 20                          # regressed telluric params per exposure P'
+  param_decoder_hidden: null             # param-decoder MLP hidden (null -> auto)
+  num_heads: 4
+  dropout: 0.1
+  # shared strided 1D-CNN over the 73 exposures of X (one CNN, shared weights)
+  x_encoder_channels: [16, 32, 64, 96, 128]
+  x_encoder_kernel: 7
+  x_encoder_stride: 2
+  # independent stellar (S) 1D-CNN (own weights, never shared with X)
+  s_encoder_channels: [16, 32, 64]
+  s_encoder_kernel: 7
+  s_encoder_stride: 2
+  encoder_pool_bins: 16                  # adaptive spectral bins per channel
+  # Fusion MLP 
+  fusion_hidden: 0                       # 0 -> num_queries * spectral_latent_dim
+  fusion_layers: 2
+
+training:
+  optimizer:
+    optimizer_type: adamw                # OptimizerType enum value
+    learning_rate: 1e-4
+    weight_decay: 1e-4
+  scheduler:
+    scheduler_type: cosine               # SchedulerType enum value
+    min_lr: 1e-6
+  max_epochs: 100
+  gradient_clip_val: 1.0
+  accumulate_grad_batches: 4
+  precision: 16-mixed
+  early_stopping_patience: 15
+  seed: 42

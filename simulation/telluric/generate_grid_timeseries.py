@@ -85,7 +85,7 @@ DEFAULT_OUTDIR = REPO_ROOT / "data" / "telluric_timeseries"
 TELFIT_SRC = REPO_ROOT / "TelFit" / "src"
 
 # Wavelength range (nm) and target resolution (must match Phoenix pool)
-WAVESTART_NM = 800.0
+WAVESTART_NM = 800.0008011
 WAVEEND_NM = 950.0
 TARGET_R = 100_000
 SAMPLES_PER_RESEL = 3.0

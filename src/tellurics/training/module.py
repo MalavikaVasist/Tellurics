@@ -11,6 +11,8 @@ from tellurics.models.output import ModelOutput
 from tellurics.utils.logging import get_logger
 from tellurics.utils.registry import ModelRegistry
 
+import tellurics.models  # noqa: F401  (executes the @ModelRegistry.register decorators)
+
 logger = get_logger(__name__)
 
 

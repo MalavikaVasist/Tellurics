@@ -93,7 +93,8 @@ def process_model(row, wave_file, overwrite):
     wave_angstrom = fits.getdata(wave_file)
     flux_raw      = fits.getdata(spectrum_file)
     wave_um       = wave_angstrom * 1e-4
-
+    
+    wmin = 0.800000801
     cut = (wave_um >= wmin) & (wave_um <= wmax)
     wave_cut = np.asarray(wave_um[cut], dtype=np.float64)
     flux_cut = np.asarray(flux_raw[cut], dtype=np.float64)
