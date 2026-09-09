@@ -73,7 +73,7 @@ def main() -> None:
     args = parse_args()
 
     model_kwargs: dict = {
-        "architecture": "perceiver_night",
+        "architecture": "telluric_estimator",
         "num_wavelength_bins": 51556,
         "n_frames_per_series": 73,
         "num_queries": 16,

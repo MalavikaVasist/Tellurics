@@ -33,7 +33,7 @@ import time
 import torch
 import torch.nn.functional as F
 
-from tellurics.models.temporal_conv import TelluricModel, TemporalConvConfig
+from tellurics.models.night import TelluricEstimator as TelluricModel, TelluricEstimatorConfig
 
 
 # --------------------------------------------------------------------------- #
@@ -120,7 +120,7 @@ def parameter_table(model: TelluricModel) -> None:
 
 
 def run_shape_check(args: argparse.Namespace) -> None:
-    cfg = TemporalConvConfig(
+    cfg = TelluricEstimatorConfig(
         n_wavelength=args.n_wavelength,
         n_frames=args.n_frames,
         n_queries=args.n_queries,
@@ -147,7 +147,7 @@ def run_shape_check(args: argparse.Namespace) -> None:
         "X (observed)": tuple(x.shape),
         "Z": out.intermediate_features["z"].shape,
         "M_code (meta enc)": out.intermediate_features["metadata_code"].shape,
-        "tokens (Z+M_code)": out.intermediate_features["tokens"].shape,
+        "tokens (Z+M+time)": out.intermediate_features["tokens"].shape,
         "L": out.intermediate_features["l"].shape,
         "h_X": out.intermediate_features["h_x"].shape,
         "h_S": out.intermediate_features["h_s"].shape,
@@ -165,8 +165,9 @@ def run_shape_check(args: argparse.Namespace) -> None:
         "X (observed)": (batch, cfg.n_frames, cfg.n_wavelength),
         "Z": (batch, cfg.n_frames, cfg.latent_dim),
         "M_code (meta enc)": (batch, cfg.n_frames, cfg.metadata_enc_dim),
-        "tokens (Z+M_code)": (
-            batch, cfg.n_frames, cfg.latent_dim + cfg.metadata_enc_dim,
+        "tokens (Z+M+time)": (
+            batch, cfg.n_frames,
+            cfg.latent_dim + cfg.metadata_enc_dim + cfg.time_enc_dim,
         ),
         "L": (batch, cfg.n_queries, cfg.latent_dim),
         "h_X": (batch, cfg.n_queries * cfg.latent_dim),
@@ -189,7 +190,7 @@ def run_shape_check(args: argparse.Namespace) -> None:
 
 
 def run_overfit(args: argparse.Namespace) -> None:
-    cfg = TemporalConvConfig(
+    cfg = TelluricEstimatorConfig(
         n_wavelength=args.n_wavelength,
         n_frames=args.n_frames,
         n_queries=args.n_queries,

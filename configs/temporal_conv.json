@@ -1,6 +1,6 @@
 {
     "model": {
-        "architecture": "temporal_conv",
+        "architecture": "telluric_estimator",
         "num_wavelength_bins": 51556,
         "n_frames_per_series": 73,
         "num_queries": 16,

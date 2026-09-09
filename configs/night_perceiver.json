@@ -1,6 +1,6 @@
 {
     "model": {
-        "architecture": "perceiver_night",
+        "architecture": "telluric_estimator",
         "num_wavelength_bins": 51556,
         "num_atm_parameters": 6,
         "fusion_method": "film",

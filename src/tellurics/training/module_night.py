@@ -19,9 +19,8 @@ class NightTelluricModule(pl.LightningModule):
     """Lightning module for the whole-night telluric regressors.
 
     Works with any whole-night architecture registered in the model registry
-    that maps ``observed (B, T, N) -> telluric (B, T, N)`` -- e.g.
-    ``perceiver_night`` (models/night.py) and ``temporal_conv``
-    (models/temporal_conv.py).
+    that maps ``observed (B, T, N) -> params (B, T, P)`` -- e.g.
+    ``telluric_estimator`` (models/night.py).
 
     Loss: supervised MSE over the whole night (all exposures and wavelength
     samples):

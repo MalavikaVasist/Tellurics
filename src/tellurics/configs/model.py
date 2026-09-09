@@ -11,8 +11,7 @@ class ModelArchitecture(str, Enum):
     CNN = "cnn"
     TRANSFORMER = "transformer"
     MAMBA = "mamba"
-    NIGHT_PERCEIVER = "perceiver_night"
-    TEMPORAL_CONV = "temporal_conv"
+    TELLURIC_ESTIMATOR = "telluric_estimator"
 
 
 class FusionMethod(str, Enum):
@@ -47,7 +46,7 @@ class ModelConfig(BaseModel):
     state_dim: int = Field(default=16, gt=0)
     expand_factor: int = Field(default=2, gt=0)
 
-    # Night-level Perceiver-specific (see models/night.py)
+    # Night-level estimator-specific (see models/night.py)
     n_frames_per_series: int = Field(default=73, gt=0, description="Exposures per night (T).")
     num_queries: int = Field(default=16, gt=0, description="Number of learned Perceiver latents (Q).")
     spectral_latent_dim: int = Field(
@@ -69,9 +68,9 @@ class ModelConfig(BaseModel):
         description="Output spectral dim of the telluric decoder. 0 -> use num_wavelength_bins.",
     )
 
-    # Whole-night CNN auto-encoder with temporal Perceiver (see models/temporal_conv.py).
-    # These fields are only consumed when architecture == "temporal_conv"; they
-    # are ignored by every other architecture.
+    # Whole-night telluric parameter estimator (see models/night.py).
+    # These fields are only consumed when architecture == "telluric_estimator";
+    # they are ignored by every other architecture.
     x_encoder_channels: list[int] = Field(
         default_factory=lambda: [16, 32, 64, 96, 128],
         description="Channels of the shared strided 1D-CNN applied to each exposure of X.",
@@ -106,20 +105,27 @@ class ModelConfig(BaseModel):
         default=16, gt=0,
         description="Width of the per-exposure metadata code (C), concatenated "
                     "with the spectral code before the temporal Perceiver "
-                    "(temporal_conv only).",
+                    "(telluric_estimator only).",
     )
     metadata_enc_hidden: int | None = Field(
         default=None, gt=0,
         description="Hidden width of the per-exposure metadata encoder MLP "
-                    "(None -> auto; temporal_conv only).",
+                    "(None -> auto; telluric_estimator only).",
+    )
+    time_enc_dim: int = Field(
+        default=16, gt=0,
+        description="Width (k) of the per-exposure time code produced by the "
+                    "TimeEncoder from continuous exposure times (time_hours), "
+                    "concatenated with the spectral + metadata codes before "
+                    "the temporal Perceiver (telluric_estimator only).",
     )
     param_dim: int = Field(
         default=20, gt=0,
         description="Number of telluric/atmospheric parameters predicted per "
-                    "exposure by the param-decoder head (temporal_conv only).",
+                    "exposure by the param-decoder head (telluric_estimator only).",
     )
     param_decoder_hidden: int | None = Field(
         default=None, gt=0,
         description="Hidden width of the per-exposure param-decoder MLP "
-                    "(None -> auto; temporal_conv only).",
+                    "(None -> auto; telluric_estimator only).",
     )

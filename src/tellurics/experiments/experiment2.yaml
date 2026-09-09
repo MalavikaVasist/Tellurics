@@ -1,4 +1,5 @@
-# Experiment 2: whole-night telluric *parameter* regression with temporal_conv.
+# Experiment 2: whole-night telluric *parameter* regression with
+# tellurics.models.night.TelluricEstimator (registry id "telluric_estimator").
 #
 # Instead of reconstructing the full N-sample transmission, the model regresses
 # the P telluric / atmospheric parameters that parametrize each exposure (e.g.
@@ -7,13 +8,13 @@
 #   X = T*S  (B, T=73, N=51556)        ->  param_pred (B, T, 20)
 #   metadata (B, T, 3)  per exposure        loss = MSE(param_input - param_pred)
 #
-# Pipeline (tellurics.models.temporal_conv.TelluricModel, registry id
-# "temporal_conv"):
+# Pipeline (tellurics.models.night.TelluricEstimator, registry id
+# "telluric_estimator"):
 #   1. shared 1D-CNN encodes each exposure of X       ->  Z (B, 73, 64)
-#   2. MetadataEncoding maps per-exposure metadata to a 16-dim code
-#      M_code (B, 73, 16), concatenated with Z         ->  tokens (B, 73, 80)
-#   3. the temporal Perceiver projects the 80-dim tokens down to 64 and
-#      compresses the 73 exposures into Q=16 learned latent tokens
+#   2. MetadataEncoder maps per-exposure metadata to a 16-dim code
+#      M_code (B, 73, 16), and TimeEncoder maps time_hours to a 16-dim code;
+#      both concatenated with Z (pre_temporal -> d)   ->  tokens (B, 73, 64)
+#   3. the temporal Perceiver compresses the 73 exposures into Q=16 latent
 #   4. the latent is expanded back to per-exposure codes H_T (B, 73, 64)
 #   5. a shared MLP (ParamDecoder) decodes each code to 20 parameters
 #
@@ -23,7 +24,7 @@
 # still pending; only the model-level change is in place.
 
 model:
-  architecture: temporal_conv            # ModelArchitecture enum value
+  architecture: telluric_estimator       # ModelArchitecture enum value
   num_wavelength_bins: 51556             # spectral samples N per exposure
   n_frames_per_series: 73                # exposures T per night
   num_queries: 16                        # learned latent tokens Q (temporal)
@@ -47,6 +48,7 @@ model:
   # Fusion MLP 
   fusion_hidden: 0                       # 0 -> num_queries * spectral_latent_dim
   fusion_layers: 2
+  time_enc_dim: 16                       # Width of the per-exposure time code
 
 training:
   optimizer:
@@ -62,3 +64,4 @@ training:
   precision: 16-mixed
   early_stopping_patience: 15
   seed: 42
+

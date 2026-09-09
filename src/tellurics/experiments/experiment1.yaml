@@ -13,7 +13,7 @@
 #       --night-h5 data/night_dataset.h5 --config <this file / a .json twin>
 
 model:
-  architecture: perceiver_night          # ModelArchitecture enum value
+  architecture: telluric_estimator     # ModelArchitecture enum value
   num_wavelength_bins: 51556             # spectral samples N per exposure
   num_atm_parameters: 6
   fusion_method: film                    # FusionMethod enum value
