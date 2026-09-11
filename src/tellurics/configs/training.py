@@ -50,13 +50,20 @@ class TrainingConfig(BaseModel):
     optimizer: OptimizerConfig = Field(default_factory=OptimizerConfig)
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
     max_epochs: int = Field(default=100, gt=0)
+    batch_size: int = Field(default=4, gt=0, description="Whole nights per batch.")
+    num_workers: int = Field(default=2, ge=0, description="DataLoader workers.")
     gradient_clip_val: float | None = Field(default=1.0, ge=0.0)
     accumulate_grad_batches: int = Field(default=1, gt=0)
     precision: str = Field(default="16-mixed")
     early_stopping_patience: int = Field(default=15, gt=0)
     early_stopping_metric: str = "val_loss"
-    checkpoint_dir: Path = Path("checkpoints")
-    log_dir: Path = Path("logs")
+    checkpoint_dir: Path = Field(
+        default=Path("checkpoints"),
+        description="Checkpoint folder, relative to the run directory.",
+    )
+    log_dir: Path = Field(
+        default=Path("logs"),
+        description="Logger folder, relative to the run directory.",
+    )
     log_every_n_steps: int = Field(default=10, gt=0)
     val_check_interval: float | int = 1.0
-    seed: int = Field(default=42)

@@ -46,6 +46,7 @@ slurm-*.out
 *.log
 
 # Training outputs
+runs/
 checkpoints/
 logs/
 output/

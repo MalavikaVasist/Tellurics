@@ -1,18 +1,17 @@
 """Configuration models using Pydantic v2."""
 
-from tellurics.configs.atmospheric import AtmosphericParameters
-from tellurics.configs.data import DatasetConfig
-from tellurics.configs.inference import InferenceConfig
-from tellurics.configs.loss import LossConfig
+from tellurics.configs.data import DataConfig
+from tellurics.configs.experiment import ExperimentConfig, load_config
 from tellurics.configs.model import ModelConfig
 from tellurics.configs.training import OptimizerConfig, SchedulerConfig, TrainingConfig
+from tellurics.configs.wandb import WandbConfig
 
 __all__ = [
-    "AtmosphericParameters",
-    "DatasetConfig",
-    "InferenceConfig",
-    "LossConfig",
     "ModelConfig",
+    "DataConfig",
+    "ExperimentConfig",
+    "WandbConfig",
+    "load_config",
     "OptimizerConfig",
     "SchedulerConfig",
     "TrainingConfig",

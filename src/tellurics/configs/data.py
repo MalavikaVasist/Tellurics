@@ -1,51 +1,53 @@
-"""Dataset configuration."""
+"""Data configuration: input paths and the night-level split.
 
-from enum import Enum
+This is the ``data:`` section of an experiment manifest. It feeds
+:class:`~tellurics.data.datamodule.TelluricDataModule`, which additionally
+takes ``batch_size`` / ``num_workers`` from ``TrainingConfig``.
+"""
+
+from __future__ import annotations
+
 from pathlib import Path
 
 from pydantic import BaseModel, Field, model_validator
 
 
-class DataFormat(str, Enum):
-    """Supported input data formats."""
+class DataConfig(BaseModel):
+    """Input paths and night-level split settings for :class:`TelluricDataModule`.
 
-    HDF5 = "hdf5"
-    FITS = "fits"
-    NUMPY = "numpy"
+    Relative paths are interpreted against the current working directory (i.e.
+    the repo root when running ``python -m tellurics.scripts.train``).
+    """
 
+    # -- inputs ---------------------------------------------------------- #
+    night_h5: Path = Field(
+        default=Path("data/telluric_timeseries/telluric_templates.h5"),
+        description="Night-major HDF5; built once by "
+                    "tests/testing_dataset_reshape.ipynb.",
+    )
+    phoenix_dir: Path = Field(
+        default=Path("data/phoenix/convolved"),
+        description="Directory holding the stellar *.fits pool.",
+    )
 
-class DatasetType(str, Enum):
-    """Type of dataset."""
+    # -- DataLoader ------------------------------------------------------ #
+    pin_memory: bool = True
 
-    SIMULATED = "simulated"
-    REAL = "real"
-
-
-class DatasetConfig(BaseModel):
-    """Configuration for dataset loading and splitting."""
-
-    data_dir: Path
-    dataset_type: DatasetType
-    data_format: DataFormat = DataFormat.HDF5
-    num_wavelength_bins: int = Field(default=4096, gt=0)
+    # -- night-level split ----------------------------------------------- #
     train_fraction: float = Field(default=0.8, gt=0.0, lt=1.0)
     val_fraction: float = Field(default=0.1, gt=0.0, lt=1.0)
-    test_fraction: float = Field(default=0.1, gt=0.0, lt=1.0)
-    batch_size: int = Field(default=32, gt=0)
-    num_workers: int = Field(default=4, ge=0)
-    pin_memory: bool = True
-    simulated_fraction: float = Field(
-        default=0.5,
-        ge=0.0,
-        le=1.0,
-        description="Fraction of simulated data in mixed batches",
+    seed: int = Field(
+        default=42,
+        description="Seeds the night split and the per-night stellar assignment.",
     )
 
     @model_validator(mode="after")
-    def validate_fractions(self) -> "DatasetConfig":
-        """Ensure train/val/test fractions sum to 1.0."""
-        total = self.train_fraction + self.val_fraction + self.test_fraction
-        if abs(total - 1.0) > 1e-6:
-            msg = f"Train/val/test fractions must sum to 1.0, got {total}"
-            raise ValueError(msg)
+    def _validate_fractions(self) -> DataConfig:
+        """Ensure train + val leave room for a non-empty test split."""
+        if self.train_fraction + self.val_fraction >= 1.0:
+            raise ValueError(
+                "train_fraction + val_fraction must be < 1.0 (the remainder is "
+                f"the test split); got {self.train_fraction} + "
+                f"{self.val_fraction}"
+            )
         return self

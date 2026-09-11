@@ -280,7 +280,7 @@ class TestRepoIntegration:
 
 class TestNightLevelSplit:
     def test_split_is_on_nights_only(self) -> None:
-        from tellurics.data.night import split_night_indices
+        from tellurics.data.splits import split_night_indices
 
         train, val, test = split_night_indices(100, 0.8, 0.1, seed=7)
         assert len(train) == 80

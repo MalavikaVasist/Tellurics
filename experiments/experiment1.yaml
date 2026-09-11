@@ -1,11 +1,13 @@
 # Experiment 2: whole-night telluric *parameter* regression with
 # tellurics.models.night.TelluricEstimator (registry id "telluric_estimator").
 #
+# This is the runnable experiment for the current training entry point.
+#
 # Instead of reconstructing the full N-sample transmission, the model regresses
 # the P telluric / atmospheric parameters that parametrize each exposure (e.g.
 # via a TelFit-style forward model):
 #
-#   X = T*S  (B, T=73, N=51556)        ->  param_pred (B, T, 20)
+#   X = T*S  (B, T=73, N=51556)        ->  param_pred (B, T, 16)
 #   metadata (B, T, 3)  per exposure        loss = MSE(param_input - param_pred)
 #
 # Pipeline (tellurics.models.night.TelluricEstimator, registry id
@@ -16,12 +18,23 @@
 #      both concatenated with Z (pre_temporal -> d)   ->  tokens (B, 73, 64)
 #   3. the temporal Perceiver compresses the 73 exposures into Q=16 latent
 #   4. the latent is expanded back to per-exposure codes H_T (B, 73, 64)
-#   5. a shared MLP (ParamDecoder) decodes each code to 20 parameters
+#   5. a shared MLP (ParamDecoder) decodes each code to 16 parameters
 #
-# This manifest mirrors the runnable config `configs/temporal_conv.json`
-# (same pydantic schema / enum values as experiment1).  The training wiring
-# that feeds per-exposure `param_input` targets and computes the MSE loss is
-# still pending; only the model-level change is in place.
+# Run:
+#   python -m tellurics.scripts.train --config experiments/experiment2.yaml
+#
+# Contract with tellurics.data.datamodule (must not be changed blindly):
+#   metadata_dim == 3    # pressure, temperature, humidity (per exposure)
+#   param_dim    == 16   # TARGET_COLUMNS = PHYSICAL_COLUMNS - {"time_hours"}
+# Any other values make the model output and the MSE target disagree in shape.
+
+# Artefacts (config.yaml, stellar_assignment.csv, logs/, checkpoints/) land here.
+run_dir: runs/experiment1
+
+# Weights & Biases: project the metrics go to + this run's display title.
+wandb:
+  project: telluric_estimator
+  title: experiment1
 
 model:
   architecture: telluric_estimator       # ModelArchitecture enum value
@@ -32,7 +45,7 @@ model:
   metadata_dim: 3                        # per-exposure metadata width P (B, T, P)
   metadata_enc_dim: 16                   # encoded metadata code width C
   metadata_enc_hidden: null              # metadata MLP hidden (null -> auto)
-  param_dim: 20                          # regressed telluric params per exposure P'
+  param_dim: 16                          # regressed telluric params per exposure P'
   param_decoder_hidden: null             # param-decoder MLP hidden (null -> auto)
   num_heads: 4
   dropout: 0.1
@@ -45,10 +58,20 @@ model:
   s_encoder_kernel: 7
   s_encoder_stride: 2
   encoder_pool_bins: 16                  # adaptive spectral bins per channel
-  # Fusion MLP 
+  # Fusion MLP
   fusion_hidden: 0                       # 0 -> num_queries * spectral_latent_dim
   fusion_layers: 2
-  time_enc_dim: 16                       # Width of the per-exposure time code
+  time_enc_dim: 16                       # width of the per-exposure time code
+
+data:
+  # Input paths (relative to the repo root).
+  night_h5: data/telluric_timeseries/telluric_templates.h5   # built by tests/testing_dataset_reshape.ipynb
+  phoenix_dir: data/phoenix/convolved    # stellar *.fits pool
+  # Night-level split (test = 1 - train - val).
+  train_fraction: 0.8
+  val_fraction: 0.1
+  seed: 42                               # seeds the split + stellar assignment
+  pin_memory: true                       # DataLoader pin_memory
 
 training:
   optimizer:
@@ -59,9 +82,9 @@ training:
     scheduler_type: cosine               # SchedulerType enum value
     min_lr: 1e-6
   max_epochs: 100
+  batch_size: 4                          # whole nights per batch
+  num_workers: 2                         # DataLoader workers
   gradient_clip_val: 1.0
   accumulate_grad_batches: 4
-  precision: 16-mixed
+  precision: 16-mixed                    # use "32" on a CPU-only machine
   early_stopping_patience: 15
-  seed: 42
-

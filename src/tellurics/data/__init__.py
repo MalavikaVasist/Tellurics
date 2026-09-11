@@ -1,36 +1,41 @@
-"""Dataset and DataModule implementations."""
+"""Whole-night telluric data: the dataset, its DataModule, and its pieces.
 
-from tellurics.data.datamodule import (
-    StellarPool,
-    TelluricDataModule,
+    datamodule.py          Lightning orchestration (TelluricDataModule)
+    datasets/night.py      one sample = one whole night
+    stellar.py             StellarPool + per-night star assignment
+    splits.py              night-level train/val/test split
+    wavegrid.py            Wavegrid
+"""
+
+from tellurics.data.datamodule import TelluricDataModule
+from tellurics.data.datasets.night import (
+    METADATA_COLUMNS,
+    PHYSICAL_COLUMNS,
+    TARGET_COLUMNS,
+    TIME_COLUMN,
     TelluricTimeseriesDataset,
-    Wavegrid,
+)
+from tellurics.data.splits import split_night_indices
+from tellurics.data.stellar import (
+    StellarPool,
     assign_stellar_per_night,
-    build_timeseries_h5,
     save_stellar_assignment,
 )
-from tellurics.data.datasets import RealObservationDataset, SimulatedDataset
-from tellurics.data.night import (
-    NightDataModule,
-    NightTelluricDataset,
-    build_night_file,
-    split_night_indices,
-)
+from tellurics.data.wavegrid import Wavegrid
 
 __all__ = [
-    "RealObservationDataset",
-    "SimulatedDataset",
+    # DataModule.
     "TelluricDataModule",
-    "NightDataModule",
-    "NightTelluricDataset",
-    "build_night_file",
-    "split_night_indices",
-    # Whole-night telluric timeseries helpers.
+    # Dataset + the label-column schema it expects.
+    "TelluricTimeseriesDataset",
+    "TIME_COLUMN",
+    "METADATA_COLUMNS",
+    "PHYSICAL_COLUMNS",
+    "TARGET_COLUMNS",
+    # Supporting pieces.
     "Wavegrid",
-    "build_timeseries_h5",
     "StellarPool",
     "assign_stellar_per_night",
     "save_stellar_assignment",
-    "TelluricTimeseriesDataset",
+    "split_night_indices",
 ]
-
