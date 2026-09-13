@@ -108,14 +108,16 @@ __all__ = ["NeuralTelluricPredictor"]
 class NeuralTelluricPredictor(nn.Module):
     """Whole-night telluric parameter estimator (CNN AE + Perceiver bottleneck).
 
-    Inputs:
-        observed (B, T, N): observed spectra X = T * S for one night.
-        stellar  (B, N) or (N,): night-constant stellar spectrum S.
-        metadata (B, T, P), (T, P) or (P,): per-exposure metadata scalars,
+    Inputs (all four are required; the ``None`` defaults on the signature are
+    not handled by the forward pass):
+        observed (B, T, N): observed spectra X = T * S for one night. T must
+            equal ``n_frames_per_series`` and N ``num_wavelength_bins``.
+        stellar  (B, N): night-constant stellar spectrum S, batched over B.
+        metadata (B, T, P): per-exposure metadata scalars (P == metadata_dim),
             encoded and concatenated with the spectral codes before the
             temporal Perceiver.
         time     (B, T): continuous exposure times (``time_hours``) encoded by
-            the :class:`TimeEncoder`; None -> a zero offset is used.
+            the :class:`TimeEncoder` into the per-exposure time code.
 
     Output (ModelOutput):
         params (B, T, P): predicted per-exposure telluric parameters param_pred.
@@ -234,13 +236,16 @@ class NeuralTelluricPredictor(nn.Module):
         """Regress the whole-night telluric parameters.
 
         Args:
-            observed: (B, T, N) observed spectrum X = T_tell * S.
-            stellar: (B, N) or (N,) night-constant stellar spectrum S.
-            metadata: (B, T, P), (T, P) or (P,) per-exposure metadata scalars
+            observed: (B, T, N) observed spectrum X = T_tell * S. T must equal
+                ``n_frames_per_series`` and N ``num_wavelength_bins``.
+            stellar: (B, N) night-constant stellar spectrum S; must be batched
+                and match B exactly (a bare (N,) spectrum is not accepted).
+            metadata: (B, T, P) per-exposure metadata scalars
                 (P == metadata_dim), e.g. airmass/humidity per exposure.
+                A non-3-D (or ``None``) metadata is not supported.
             time: (B, T) continuous exposure times (e.g. ``time_hours`` from
                 the data), used to build the per-exposure time code ``z_time``.
-                If None (shape-only calls), a zero offset is used.
+                ``None`` is not supported.
 
         Returns:
             ModelOutput(params=(B, T, P), latent=(B, Q*d),
@@ -304,8 +309,8 @@ class NeuralTelluricPredictor(nn.Module):
         s = stellar
         if s.shape != (batch, self.n_wavelength):
             raise ValueError(
-                f"stellar must be ({batch}, {self.n_wavelength}) or "
-                f"({self.n_wavelength},), got {tuple(stellar.shape)}"
+                f"stellar must be ({batch}, {self.n_wavelength}) "
+                f"got {tuple(stellar.shape)}"
             )
         h_s = self.stellar_encoder(s)            # (B, d)
 

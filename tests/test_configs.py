@@ -1,19 +1,24 @@
 """Tests for configuration validation."""
 
-from tellurics.configs.model import ModelConfig
+import pytest
+
+from tellurics.configs.model import ModelArchitecture, ModelConfig
 from tellurics.configs.training import TrainingConfig
 
 
 class TestModelConfig:
     def test_default_config(self) -> None:
         config = ModelConfig()
-        assert config.architecture.value == "cnn"
-        assert config.hidden_dim == 256
-        assert config.fusion_method.value == "film"
-
-    def test_transformer_config(self) -> None:
-        config = ModelConfig(architecture="transformer", num_heads=8)
+        assert (
+            config.architecture is ModelArchitecture.NEURAL_TELLURIC_PREDICTOR
+        )
+        assert config.n_frames_per_series == 73
+        assert config.param_dim == 20
         assert config.num_heads == 8
+
+    def test_rejects_unknown_architecture(self) -> None:
+        with pytest.raises(ValueError):
+            ModelConfig(architecture="cnn")
 
 
 class TestTrainingConfig:

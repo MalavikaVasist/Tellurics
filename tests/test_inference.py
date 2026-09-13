@@ -1,30 +1,68 @@
-"""Tests for inference pipeline components."""
+"""Tests for inference-time behaviour of the whole-night estimator."""
 
 import torch
 
-from tellurics.configs.model import ModelConfig
-from tellurics.models.cnn import CNNRegressor
+from tellurics.configs.model import ModelArchitecture, ModelConfig
+from tellurics.models.night import NeuralTelluricPredictor
 from tellurics.models.output import ModelOutput
 
 
-class TestInferenceOutputStructure:
-    """Test that model outputs have the correct structure for inference."""
+def _tiny_config() -> ModelConfig:
+    """Small-dimension estimator config (CPU-friendly)."""
+    return ModelConfig(
+        architecture=ModelArchitecture.NEURAL_TELLURIC_PREDICTOR,
+        num_wavelength_bins=256,
+        n_frames_per_series=6,
+        num_queries=4,
+        spectral_latent_dim=16,
+        metadata_dim=3,
+        num_heads=4,
+        dropout=0.2,
+        x_encoder_channels=[8, 16],
+        s_encoder_channels=[8, 16],
+    )
 
-    def test_output_has_correct_fields(self) -> None:
-        config = ModelConfig(
-            num_wavelength_bins=512,
-            hidden_dim=64,
-            num_channels=[32, 64, 32],
-        )
-        model = CNNRegressor(config)
-        model.eval()
+
+def _batch() -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """(X, S, metadata, time) for two nights of six exposures.
+
+    Shapes: X (B,T,N), S (B,N), metadata (B,T,P), time (B,T) -- the same batch
+    contract :meth:`TelluricTrainingModule._run_estimator` feeds the model.
+    """
+    return (
+        torch.randn(2, 6, 256),
+        torch.randn(2, 256),
+        torch.randn(2, 6, 3),
+        torch.rand(2, 6) * 8.0,  # exposure times (hours)
+    )
+
+
+class TestEstimatorInference:
+    """Inference contract: eval() is deterministic, train() exposes dropout."""
+
+    def test_eval_output_structure_and_determinism(self) -> None:
+        model = NeuralTelluricPredictor(_tiny_config()).eval()
+        x, s, metadata, time = _batch()
 
         with torch.no_grad():
-            output = model(torch.randn(1, 512), torch.randn(1, 6))
+            first = model(x, stellar=s, metadata=metadata, time=time)
+            second = model(x, stellar=s, metadata=metadata, time=time)
 
-        assert isinstance(output, ModelOutput)
-        assert output.telluric is not None
-        assert output.telluric.shape == (1, 512)
+        assert isinstance(first, ModelOutput)
+        assert first.params.shape == (2, 6, 20)
+        assert torch.equal(first.params, second.params)
+
+    def test_mc_dropout_varies_predictions(self) -> None:
+        """Dropout must be active in train() so MC sampling is meaningful."""
+        model = NeuralTelluricPredictor(_tiny_config()).train()
+        x, s, metadata, time = _batch()
+
+        with torch.no_grad():
+            first = model(x, stellar=s, metadata=metadata, time=time).params
+            second = model(x, stellar=s, metadata=metadata, time=time).params
+
+        assert first.shape == (2, 6, 20)
+        assert not torch.equal(first, second)
 
     def test_planet_recovery_computation(self) -> None:
         """Test that planet recovery P_hat = R / T_hat works correctly."""
@@ -37,28 +75,3 @@ class TestInferenceOutputStructure:
 
         assert planet_hat.shape == spectrum.shape
         assert torch.all(torch.isfinite(planet_hat))
-
-    def test_mc_dropout_shapes(self) -> None:
-        """Test MC dropout produces correct shapes."""
-        config = ModelConfig(
-            num_wavelength_bins=256,
-            hidden_dim=32,
-            dropout=0.2,
-            num_channels=[16, 32, 16],
-        )
-        model = CNNRegressor(config)
-        model.train()  # Enable dropout
-
-        spectrum = torch.randn(2, 256)
-        atm_params = torch.randn(2, 6)
-
-        predictions = []
-        for _ in range(5):
-            output = model(spectrum, atm_params)
-            predictions.append(output.telluric)
-
-        stacked = torch.stack(predictions, dim=0)
-        assert stacked.shape == (5, 2, 256)
-
-        uncertainty = stacked.std(dim=0)
-        assert uncertainty.shape == (2, 256)

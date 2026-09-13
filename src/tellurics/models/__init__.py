@@ -1,22 +1,18 @@
-"""Neural network architectures for telluric prediction."""
+"""Neural network architectures for telluric prediction.
 
-from tellurics.models.base import BaseSpectralModel
-from tellurics.models.cnn import CNNRegressor
-from tellurics.models.decoders import ParamDecoder, TelluricDecoder
+Importing this package executes the ``@ModelRegistry.register`` decorators of
+every architecture; the whole-night ``neural_telluric_predictor`` estimator is
+the one the training pipeline builds.
+"""
+
+from tellurics.models.decoders import ParamDecoder
 from tellurics.models.encoders import (
     MetadataEncoder,
     SpectralEncoder,
     StellarEncoder,
     TimeEncoder,
 )
-from tellurics.models.fusion import (
-    AtmosphericEmbedding,
-    ConcatenationFusion,
-    CrossAttentionFusion,
-    FiLMFusion,
-    FusionMLP,
-)
-from tellurics.models.mamba import MambaSpectralModel
+from tellurics.models.fusion import FusionMLP
 from tellurics.models.night import NeuralTelluricPredictor
 from tellurics.models.output import ModelOutput
 from tellurics.models.temporal import (
@@ -24,17 +20,11 @@ from tellurics.models.temporal import (
     TemporalDecoder,
     TemporalPerceiver,
 )
-from tellurics.models.transformer import TransformerEncoder
 
 __all__ = [
-    # Per-exposure (single-spectrum) models + shared base.
-    "BaseSpectralModel",
-    "CNNRegressor",
-    "TransformerEncoder",
-    "MambaSpectralModel",
-    "ModelOutput",
-    # Whole-night telluric parameter estimator.
+    # Whole-night telluric parameter estimator (the trained architecture).
     "NeuralTelluricPredictor",
+    "ModelOutput",
     # Per-exposure encoders (spectrum / stellar / metadata / time).
     "SpectralEncoder",
     "StellarEncoder",
@@ -44,13 +34,7 @@ __all__ = [
     "MultiHeadCrossAttention",
     "TemporalPerceiver",
     "TemporalDecoder",
-    # Per-exposure fusion / decoders.
+    # Fusion / decoder heads.
     "FusionMLP",
     "ParamDecoder",
-    "TelluricDecoder",
-    # Per-exposure conditioning fusion (per-exposure models).
-    "AtmosphericEmbedding",
-    "ConcatenationFusion",
-    "FiLMFusion",
-    "CrossAttentionFusion",
 ]
