@@ -39,7 +39,7 @@ logger = get_logger(__name__)
 
 
 class TelluricDataModule(pl.LightningDataModule):
-    """Whole-night DataModule for training the :class:`TelluricEstimator`.
+    """Whole-night DataModule for training the :class:`NeuralTelluricPredictor`.
 
     Args:
         config: Input paths and night-level split settings (the manifest's
@@ -103,10 +103,21 @@ class TelluricDataModule(pl.LightningDataModule):
         import h5py
 
         with h5py.File(night_h5, "r") as f:
-            self.n_nights = int(f["transmission"].shape[0])
+            available_nights = int(f["transmission"].shape[0])
             self.n_frames = int(f["transmission"].shape[1])
             wl = np.asarray(f["wavelength"][:], np.float64)
             unit = str(f["wavelength"].attrs.get("unit", "nm"))
+
+        # Debug/smoke runs may cap the nights used (the first N); the split and
+        # the star assignment then only cover those nights.
+        self.n_nights = available_nights
+        cap = self.config.max_nights
+        if cap is not None and cap < available_nights:
+            self.n_nights = cap
+            logger.warning(
+                f"data.max_nights={cap}: using only the first {cap} of "
+                f"{available_nights} nights (smoke/debug subset)."
+            )
 
         self.wavegrid = Wavegrid(wavelength=wl, unit=unit)
         logger.info(

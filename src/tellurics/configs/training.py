@@ -56,7 +56,17 @@ class TrainingConfig(BaseModel):
     accumulate_grad_batches: int = Field(default=1, gt=0)
     precision: str = Field(default="16-mixed")
     early_stopping_patience: int = Field(default=15, gt=0)
-    early_stopping_metric: str = "val_loss"
+    monitor_metric: str = Field(
+        default="validation_loss",
+        description="Metric monitored by ModelCheckpoint, EarlyStopping and "
+                    "ReduceLROnPlateau. Must match a name the module logs.",
+    )
+    save_every_n_epochs: int = Field(
+        default=1,
+        gt=0,
+        description="Save a checkpoint every N epochs (ModelCheckpoint). "
+                    "Set to max_epochs to keep only the final epoch.",
+    )
     checkpoint_dir: Path = Field(
         default=Path("checkpoints"),
         description="Checkpoint folder, relative to the run directory.",

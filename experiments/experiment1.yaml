@@ -1,5 +1,6 @@
-# Experiment 2: whole-night telluric *parameter* regression with
-# tellurics.models.night.TelluricEstimator (registry id "telluric_estimator").
+# Experiment 1: whole-night telluric *parameter* regression with
+# tellurics.models.night.NeuralTelluricPredictor
+# (registry id "neural_telluric_predictor").
 #
 # This is the runnable experiment for the current training entry point.
 #
@@ -10,8 +11,8 @@
 #   X = T*S  (B, T=73, N=51556)        ->  param_pred (B, T, 16)
 #   metadata (B, T, 3)  per exposure        loss = MSE(param_input - param_pred)
 #
-# Pipeline (tellurics.models.night.TelluricEstimator, registry id
-# "telluric_estimator"):
+# Pipeline (tellurics.models.night.NeuralTelluricPredictor, registry id
+# "neural_telluric_predictor"):
 #   1. shared 1D-CNN encodes each exposure of X       ->  Z (B, 73, 64)
 #   2. MetadataEncoder maps per-exposure metadata to a 16-dim code
 #      M_code (B, 73, 16), and TimeEncoder maps time_hours to a 16-dim code;
@@ -21,7 +22,7 @@
 #   5. a shared MLP (ParamDecoder) decodes each code to 16 parameters
 #
 # Run:
-#   python -m tellurics.scripts.train --config experiments/experiment2.yaml
+#   python -m tellurics.scripts.train --config experiments/experiment1.yaml
 #
 # Contract with tellurics.data.datamodule (must not be changed blindly):
 #   metadata_dim == 3    # pressure, temperature, humidity (per exposure)
@@ -33,11 +34,11 @@ run_dir: runs/experiment1
 
 # Weights & Biases: project the metrics go to + this run's display title.
 wandb:
-  project: telluric_estimator
+  project: neural_telluric_predictor
   title: experiment1
 
 model:
-  architecture: telluric_estimator       # ModelArchitecture enum value
+  architecture: neural_telluric_predictor  # ModelArchitecture enum value
   num_wavelength_bins: 51556             # spectral samples N per exposure
   n_frames_per_series: 73                # exposures T per night
   num_queries: 16                        # learned latent tokens Q (temporal)
@@ -45,6 +46,7 @@ model:
   metadata_dim: 3                        # per-exposure metadata width P (B, T, P)
   metadata_enc_dim: 16                   # encoded metadata code width C
   metadata_enc_hidden: null              # metadata MLP hidden (null -> auto)
+  time_enc_dim: 16                       # width of the per-exposure time code
   param_dim: 16                          # regressed telluric params per exposure P'
   param_decoder_hidden: null             # param-decoder MLP hidden (null -> auto)
   num_heads: 4
@@ -61,7 +63,6 @@ model:
   # Fusion MLP
   fusion_hidden: 0                       # 0 -> num_queries * spectral_latent_dim
   fusion_layers: 2
-  time_enc_dim: 16                       # width of the per-exposure time code
 
 data:
   # Input paths (relative to the repo root).
@@ -82,9 +83,16 @@ training:
     scheduler_type: cosine               # SchedulerType enum value
     min_lr: 1e-6
   max_epochs: 100
+  precision: 16-mixed                    # use "32" on a CPU-only machine
+  gradient_clip_val: 1.0
+  accumulate_grad_batches: 4             # accumulate gradients over this many batches before stepping the optimizer
+  val_check_interval: 1.0                # epochs (or fraction) between validations
+  log_every_n_steps: 10                  # Trainer logging cadence
+  log_dir: logs                          # relative to run_dir (W&B local files) 
   batch_size: 4                          # whole nights per batch
   num_workers: 2                         # DataLoader workers
-  gradient_clip_val: 1.0
-  accumulate_grad_batches: 4
-  precision: 16-mixed                    # use "32" on a CPU-only machine
-  early_stopping_patience: 15
+  save_every_n_epochs: 100               # save checkpoints every N epochs (set to max_epochs to save only the final checkpoint)
+  monitor_metric: validation_loss        # must match a metric the module logs
+  early_stopping_patience: 5
+  checkpoint_dir: checkpoints            # relative to run_dir
+

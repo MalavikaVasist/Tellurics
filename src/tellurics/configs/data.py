@@ -40,6 +40,14 @@ class DataConfig(BaseModel):
         default=42,
         description="Seeds the night split and the per-night stellar assignment.",
     )
+    max_nights: int | None = Field(
+        default=None,
+        gt=0,
+        description="Use only the first N nights (e.g. 100) for a quick "
+                    "smoke/debug run, instead of the whole file. The split and "
+                    "the stellar assignment then only cover those nights. "
+                    "None (default) uses every night in ``night_h5``.",
+    )
 
     @model_validator(mode="after")
     def _validate_fractions(self) -> DataConfig:

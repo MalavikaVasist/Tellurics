@@ -1,6 +1,6 @@
 """PyTorch Lightning module for the whole-night telluric estimator.
 
-This module trains :class:`~tellurics.models.night.TelluricEstimator` on the
+This module trains :class:`~tellurics.models.night.NeuralTelluricPredictor` on the
 night-major batches produced by
 :class:`~tellurics.data.datamodule.TelluricDataModule`.
 
@@ -38,10 +38,10 @@ import tellurics.models  # noqa: F401  (executes the @ModelRegistry.register dec
 logger = get_logger(__name__)
 
 
-class TelluricEstimatorModule(pl.LightningModule):
+class TelluricTrainingModule(pl.LightningModule):
     """Train the whole-night telluric parameter estimator (MSE on params).
 
-    Handles model instantiation from the ``telluric_estimator`` registry entry,
+    Handles model instantiation from the ``neural_telluric_predictor`` registry entry,
     the ``MSE(param_pred, params)`` training/validation loop, and optimizer /
     scheduler configuration.
 
@@ -58,7 +58,7 @@ class TelluricEstimatorModule(pl.LightningModule):
 
         Args:
             model_config: Model architecture configuration (architecture must be
-                ``telluric_estimator``).
+                ``neural_telluric_predictor``).
             training_config: Training hyperparameter configuration.
         """
         super().__init__()
@@ -70,7 +70,7 @@ class TelluricEstimatorModule(pl.LightningModule):
         model_cls = ModelRegistry.get(model_config.architecture.value)
         self.model = model_cls(model_config)
         logger.info(
-            f"TelluricEstimatorModule: {model_cls.__name__} with "
+            f"TelluricTrainingModule: {model_cls.__name__} with "
             f"{sum(p.numel() for p in self.model.parameters() if p.requires_grad):,} "
             "trainable parameters"
         )
@@ -101,7 +101,7 @@ class TelluricEstimatorModule(pl.LightningModule):
     # ------------------------------------------------------------------ #
     def _run_estimator(self, batch: dict[str, torch.Tensor]) -> ModelOutput:
         """Run the estimator on a DataModule batch."""
-        return self.model(
+        return self(
             batch["observed"],
             stellar=batch["stellar"],
             metadata=batch["theta"]["metadata"],
@@ -112,6 +112,20 @@ class TelluricEstimatorModule(pl.LightningModule):
         self, batch: dict[str, torch.Tensor], stage: str
     ) -> torch.Tensor:
         """Shared MSE(param_pred, theta.params) step for train/val/test.
+
+        Every metric is logged at **epoch level** (``on_step=False``,
+        ``on_epoch=True``), so the keys carry no ``_step``/``_epoch`` suffix
+        and W&B receives one value per epoch under a stable name:
+
+        * ``training_loss``   -- MSE over the training batches (epoch mean).
+        * ``validation_loss`` -- MSE over the validation batches (epoch mean).
+        * ``learning_rate``   -- optimizer LR used during the epoch (train only).
+        * ``nans``            -- percentage of the epoch's training batches
+          whose loss was NaN.
+        * ``nans_val``        -- percentage of the epoch's validation batches
+          whose loss was NaN.
+
+        The ``test`` stage falls back to ``test_loss`` / ``nans_test``.
 
         Args:
             batch: A batch from :class:`TelluricDataModule`.
@@ -124,18 +138,46 @@ class TelluricEstimatorModule(pl.LightningModule):
         target = batch["theta"]["params"]                        # (B, T, P)
         loss = F.mse_loss(pred, target)
         rmse = loss.sqrt()
+        is_train = stage == "train"
+        batch_size = batch["observed"].size(0)
+
+        loss_name = {"train": "training_loss", "val": "validation_loss"}.get(
+            stage, f"{stage}_loss"
+        )
+        nan_name = {"train": "nans", "val": "nans_val"}.get(
+            stage, f"nans_{stage}"
+        )
 
         self.log(
-            f"{stage}_loss", loss,
-            on_step=(stage == "train"), on_epoch=True, prog_bar=True,
-            batch_size=batch["observed"].size(0),
+            loss_name, loss,
+            on_step=False, on_epoch=True, prog_bar=True,
+            batch_size=batch_size,
         )
         self.log(
             f"{stage}_rmse", rmse,
             on_step=False, on_epoch=True,
-            batch_size=batch["observed"].size(0),
+            batch_size=batch_size,
         )
+        # Percentage of the epoch's batches whose loss was NaN (0% = healthy).
+        # No batch_size on purpose: Lightning then takes the plain mean over the
+        # epoch's batches (default reduce_fx), so the 0/1 flags average to a %.
+        self.log(
+            nan_name, 100.0 * torch.isnan(loss).float(),
+            on_step=False, on_epoch=True,
+        )
+        if is_train:
+            self.log(
+                "learning_rate", self._current_lr(),
+                on_step=False, on_epoch=True, prog_bar=True,
+            )
         return loss
+
+    def _current_lr(self) -> float:
+        """Learning rate of the first optimizer's first parameter group."""
+        optimizers = self.trainer.optimizers
+        if not optimizers:
+            return 0.0
+        return float(optimizers[0].param_groups[0]["lr"])
 
     def training_step(
         self, batch: dict[str, torch.Tensor], batch_idx: int
@@ -154,6 +196,16 @@ class TelluricEstimatorModule(pl.LightningModule):
     ) -> torch.Tensor:
         """Test step."""
         return self._shared_step(batch, "test")
+
+    def predict_step(
+        self, batch: dict[str, torch.Tensor], batch_idx: int
+    ) -> ModelOutput:
+        """Prediction step: run the trained estimator (no loss, no logging).
+
+        Used by ``Trainer.predict(...)`` to collect one :class:`ModelOutput`
+        per batch (notably ``.params``) over a dataset without training.
+        """
+        return self._run_estimator(batch)
 
     # ------------------------------------------------------------------ #
     def configure_optimizers(self) -> dict:
@@ -214,7 +266,7 @@ class TelluricEstimatorModule(pl.LightningModule):
                     "optimizer": optimizer,
                     "lr_scheduler": {
                         "scheduler": scheduler,
-                        "monitor": self.training_config.early_stopping_metric,
+                        "monitor": self.training_config.monitor_metric,
                         "interval": "epoch",
                     },
                 }

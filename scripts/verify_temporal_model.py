@@ -33,7 +33,8 @@ import time
 import torch
 import torch.nn.functional as F
 
-from tellurics.models.night import TelluricEstimator as TelluricModel, TelluricEstimatorConfig
+from tellurics.configs.model import ModelConfig
+from tellurics.models.night import NeuralTelluricPredictor as TelluricModel
 
 
 # --------------------------------------------------------------------------- #
@@ -120,23 +121,24 @@ def parameter_table(model: TelluricModel) -> None:
 
 
 def run_shape_check(args: argparse.Namespace) -> None:
-    cfg = TelluricEstimatorConfig(
-        n_wavelength=args.n_wavelength,
-        n_frames=args.n_frames,
-        n_queries=args.n_queries,
-        latent_dim=args.latent_dim,
+    cfg = ModelConfig(
+        num_wavelength_bins=args.n_wavelength,
+        n_frames_per_series=args.n_frames,
+        num_queries=args.n_queries,
+        spectral_latent_dim=args.latent_dim,
         metadata_dim=args.metadata_dim,
-        n_heads=args.n_heads,
+        num_heads=args.n_heads,
     )
     model = TelluricModel(cfg)
     total = parameter_table(model)
 
-    print(f"\n===== shape check  N={cfg.n_wavelength}, T={cfg.n_frames}, "
-          f"Q={cfg.n_queries}, d={cfg.latent_dim} =====")
+    print(f"\n===== shape check  N={cfg.num_wavelength_bins}, "
+          f"T={cfg.n_frames_per_series}, "
+          f"Q={cfg.num_queries}, d={cfg.spectral_latent_dim} =====")
     batch = args.batch
-    x = torch.randn(batch, cfg.n_frames, cfg.n_wavelength)
-    s = torch.randn(batch, cfg.n_wavelength)
-    meta = torch.randn(batch, cfg.n_frames, cfg.metadata_dim)
+    x = torch.randn(batch, cfg.n_frames_per_series, cfg.num_wavelength_bins)
+    s = torch.randn(batch, cfg.num_wavelength_bins)
+    meta = torch.randn(batch, cfg.n_frames_per_series, cfg.metadata_dim)
 
     t0 = time.time()
     with torch.no_grad():
@@ -162,22 +164,25 @@ def run_shape_check(args: argparse.Namespace) -> None:
         print(f"  {name:<22} {str(tuple(shp)):<24}")
 
     expected = {
-        "X (observed)": (batch, cfg.n_frames, cfg.n_wavelength),
-        "Z": (batch, cfg.n_frames, cfg.latent_dim),
-        "M_code (meta enc)": (batch, cfg.n_frames, cfg.metadata_enc_dim),
+        "X (observed)": (batch, cfg.n_frames_per_series, cfg.num_wavelength_bins),
+        "Z": (batch, cfg.n_frames_per_series, cfg.spectral_latent_dim),
+        "M_code (meta enc)": (batch, cfg.n_frames_per_series, cfg.metadata_enc_dim),
         "tokens (Z+M+time)": (
-            batch, cfg.n_frames,
-            cfg.latent_dim + cfg.metadata_enc_dim + cfg.time_enc_dim,
+            batch, cfg.n_frames_per_series,
+            cfg.spectral_latent_dim + cfg.metadata_enc_dim + cfg.time_enc_dim,
         ),
-        "L": (batch, cfg.n_queries, cfg.latent_dim),
-        "h_X": (batch, cfg.n_queries * cfg.latent_dim),
-        "h_S": (batch, cfg.latent_dim),
-        "fusion": (batch, cfg.n_queries * cfg.latent_dim + cfg.latent_dim),
-        "h_fused": (batch, cfg.n_queries * cfg.latent_dim),
-        "latent": (batch, cfg.n_queries, cfg.latent_dim),
-        "temporal": (batch, cfg.n_frames, cfg.latent_dim),
-        "param_pred (params)": (batch, cfg.n_frames, cfg.param_dim),
-        "attention (Q->T)": (batch, cfg.n_queries, cfg.n_frames),
+        "L": (batch, cfg.num_queries, cfg.spectral_latent_dim),
+        "h_X": (batch, cfg.num_queries * cfg.spectral_latent_dim),
+        "h_S": (batch, cfg.spectral_latent_dim),
+        "fusion": (
+            batch,
+            cfg.num_queries * cfg.spectral_latent_dim + cfg.spectral_latent_dim,
+        ),
+        "h_fused": (batch, cfg.num_queries * cfg.spectral_latent_dim),
+        "latent": (batch, cfg.num_queries, cfg.spectral_latent_dim),
+        "temporal": (batch, cfg.n_frames_per_series, cfg.spectral_latent_dim),
+        "param_pred (params)": (batch, cfg.n_frames_per_series, cfg.param_dim),
+        "attention (Q->T)": (batch, cfg.num_queries, cfg.n_frames_per_series),
     }
     bad = {k: (v, expected[k]) for k, v in shapes.items() if tuple(v) != expected[k]}
     if bad:
@@ -190,23 +195,25 @@ def run_shape_check(args: argparse.Namespace) -> None:
 
 
 def run_overfit(args: argparse.Namespace) -> None:
-    cfg = TelluricEstimatorConfig(
-        n_wavelength=args.n_wavelength,
-        n_frames=args.n_frames,
-        n_queries=args.n_queries,
-        latent_dim=args.latent_dim,
+    cfg = ModelConfig(
+        num_wavelength_bins=args.n_wavelength,
+        n_frames_per_series=args.n_frames,
+        num_queries=args.n_queries,
+        spectral_latent_dim=args.latent_dim,
         metadata_dim=args.metadata_dim,
-        n_heads=args.n_heads,
+        num_heads=args.n_heads,
         dropout=args.dropout,
     )
     model = TelluricModel(cfg)
     parameter_table(model)
 
-    print(f"\n===== overfit demo  N={cfg.n_wavelength}, T={cfg.n_frames}, "
-          f"Q={cfg.n_queries}, d={cfg.latent_dim} =====")
+    print(f"\n===== overfit demo  N={cfg.num_wavelength_bins}, "
+          f"T={cfg.n_frames_per_series}, "
+          f"Q={cfg.num_queries}, d={cfg.spectral_latent_dim} =====")
 
     x, s, _, meta = make_synthetic_nights(
-        args.nights, cfg.n_wavelength, cfg.n_frames, seed=args.seed
+        args.nights, cfg.num_wavelength_bins, cfg.n_frames_per_series,
+        seed=args.seed,
     )
     print(f"  train set: {x.shape[0]} nights x {x.shape[1]} exposures "
           f"x {x.shape[2]} samples")
@@ -214,7 +221,7 @@ def run_overfit(args: argparse.Namespace) -> None:
     # random param_input target.  A physically-consistent params->transmission
     # generator belongs to the training/data wiring (handled separately).
     torch.manual_seed(args.seed)
-    param_input = torch.randn(args.nights, cfg.n_frames, cfg.param_dim)
+    param_input = torch.randn(args.nights, cfg.n_frames_per_series, cfg.param_dim)
 
     opt = torch.optim.AdamW(
         model.parameters(), lr=args.lr, weight_decay=args.weight_decay

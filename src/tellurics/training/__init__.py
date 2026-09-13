@@ -1,7 +1,7 @@
 """Training infrastructure using PyTorch Lightning."""
 
-from tellurics.training.module import TelluricEstimatorModule
+from tellurics.training.module import TelluricTrainingModule
 
 __all__ = [
-    "TelluricEstimatorModule",
+    "TelluricTrainingModule",
 ]

@@ -1,4 +1,4 @@
-"""Tests for the whole-night telluric parameter estimator (TelluricEstimator)."""
+"""Tests for the whole-night telluric parameter estimator (NeuralTelluricPredictor)."""
 
 import os
 
@@ -7,7 +7,7 @@ import torch
 import torch.nn.functional as F
 
 from tellurics.configs.model import ModelArchitecture, ModelConfig
-from tellurics.models.night import TelluricEstimator, TelluricEstimatorConfig
+from tellurics.models.night import NeuralTelluricPredictor
 from tellurics.models.output import ModelOutput
 from tellurics.utils.registry import ModelRegistry
 
@@ -19,88 +19,103 @@ def _config(
     d: int = 32,
     metadata_dim: int = 3,
     heads: int = 4,
-) -> TelluricEstimatorConfig:
-    """Small dims so the tests stay fast on CPU."""
-    return TelluricEstimatorConfig(
-        n_wavelength=n_wave,
-        n_frames=t,
-        n_queries=q,
-        latent_dim=d,
+) -> ModelConfig:
+    """Small dims so the tests stay fast on CPU (a repo-wide ModelConfig)."""
+    return ModelConfig(
+        num_wavelength_bins=n_wave,
+        n_frames_per_series=t,
+        num_queries=q,
+        spectral_latent_dim=d,
         metadata_dim=metadata_dim,
-        n_heads=heads,
-        x_encoder_channels=(8, 16, 32),
-        s_encoder_channels=(8, 16, 32),
+        num_heads=heads,
+        x_encoder_channels=[8, 16, 32],
+        s_encoder_channels=[8, 16, 32],
         dropout=0.0,
     )
 
 
-class TestTelluricEstimatorShapes:
+class TestNeuralTelluricPredictorShapes:
     def test_shapes(self) -> None:
         cfg = _config()
-        model = TelluricEstimator(cfg)
+        model = NeuralTelluricPredictor(cfg)
 
-        observed = torch.randn(2, cfg.n_frames, cfg.n_wavelength)
-        stellar = torch.randn(2, cfg.n_wavelength)
-        metadata = torch.randn(2, cfg.n_frames, cfg.metadata_dim)
-        time = torch.randn(2, cfg.n_frames)
+        observed = torch.randn(2, cfg.n_frames_per_series, cfg.num_wavelength_bins)
+        stellar = torch.randn(2, cfg.num_wavelength_bins)
+        metadata = torch.randn(2, cfg.n_frames_per_series, cfg.metadata_dim)
+        time = torch.randn(2, cfg.n_frames_per_series)
 
         out = model(observed, stellar=stellar, metadata=metadata, time=time)
 
         assert isinstance(out, ModelOutput)
         assert out.params is not None
-        assert out.params.shape == (2, cfg.n_frames, cfg.param_dim)
-        assert out.latent.shape == (2, cfg.n_queries * cfg.latent_dim)
+        assert out.params.shape == (2, cfg.n_frames_per_series, cfg.param_dim)
+        assert out.latent.shape == (2, cfg.num_queries * cfg.spectral_latent_dim)
         assert out.attention_weights.shape == (
-            2, cfg.n_queries, cfg.n_frames,
+            2, cfg.num_queries, cfg.n_frames_per_series,
         )
         # the spectral (transmission) head is gone: params only
         assert out.telluric is None
 
         # intermediate features have exactly the documented shapes
         feats = out.intermediate_features
-        assert feats["z"].shape == (2, cfg.n_frames, cfg.latent_dim)
+        assert feats["z"].shape == (
+            2, cfg.n_frames_per_series, cfg.spectral_latent_dim,
+        )
         assert feats["metadata_code"].shape == (
-            2, cfg.n_frames, cfg.metadata_enc_dim,
+            2, cfg.n_frames_per_series, cfg.metadata_enc_dim,
         )
         assert feats["time_code"].shape == (
-            2, cfg.n_frames, cfg.time_enc_dim,
+            2, cfg.n_frames_per_series, cfg.time_enc_dim,
         )
         assert feats["tokens"].shape == (
-            2, cfg.n_frames,
-            cfg.latent_dim + cfg.metadata_enc_dim + cfg.time_enc_dim,
+            2, cfg.n_frames_per_series,
+            cfg.spectral_latent_dim + cfg.metadata_enc_dim + cfg.time_enc_dim,
         )
-        assert feats["l"].shape == (2, cfg.n_queries, cfg.latent_dim)
-        assert feats["h_x"].shape == (2, cfg.n_queries * cfg.latent_dim)
-        assert feats["h_s"].shape == (2, cfg.latent_dim)
+        assert feats["l"].shape == (
+            2, cfg.num_queries, cfg.spectral_latent_dim,
+        )
+        assert feats["h_x"].shape == (
+            2, cfg.num_queries * cfg.spectral_latent_dim,
+        )
+        assert feats["h_s"].shape == (2, cfg.spectral_latent_dim)
         assert feats["fusion"].shape == (
-            2, cfg.n_queries * cfg.latent_dim + cfg.latent_dim,
+            2,
+            cfg.num_queries * cfg.spectral_latent_dim + cfg.spectral_latent_dim,
         )
-        assert feats["h_fused"].shape == (2, cfg.n_queries * cfg.latent_dim)
-        assert feats["latent"].shape == (2, cfg.n_queries, cfg.latent_dim)
-        assert feats["temporal"].shape == (2, cfg.n_frames, cfg.latent_dim)
-        assert feats["param_pred"].shape == (2, cfg.n_frames, cfg.param_dim)
+        assert feats["h_fused"].shape == (
+            2, cfg.num_queries * cfg.spectral_latent_dim,
+        )
+        assert feats["latent"].shape == (
+            2, cfg.num_queries, cfg.spectral_latent_dim,
+        )
+        assert feats["temporal"].shape == (
+            2, cfg.n_frames_per_series, cfg.spectral_latent_dim,
+        )
+        assert feats["param_pred"].shape == (
+            2, cfg.n_frames_per_series, cfg.param_dim,
+        )
 
     def test_time_is_optional(self) -> None:
         """Without a `time` input the model still runs (zero time offset)."""
         cfg = _config()
-        model = TelluricEstimator(cfg)
-        observed = torch.randn(3, cfg.n_frames, cfg.n_wavelength)
+        model = NeuralTelluricPredictor(cfg)
+        observed = torch.randn(3, cfg.n_frames_per_series, cfg.num_wavelength_bins)
         out = model(observed, stellar=None, metadata=None)
-        assert out.params.shape == (3, cfg.n_frames, cfg.param_dim)
+        assert out.params.shape == (3, cfg.n_frames_per_series, cfg.param_dim)
         assert out.intermediate_features["time_code"].shape == (
-            3, cfg.n_frames, cfg.time_enc_dim,
+            3, cfg.n_frames_per_series, cfg.time_enc_dim,
         )
 
     def test_stellar_and_metadata_are_optional(self) -> None:
         cfg = _config()
-        model = TelluricEstimator(cfg)
+        model = NeuralTelluricPredictor(cfg)
         observed = torch.randn(3, 12, 1024)
         out = model(observed, stellar=None, metadata=None)
         assert out.params.shape == (3, 12, cfg.param_dim)
 
     def test_broadcasts_single_stellar_and_metadata(self) -> None:
         cfg = _config()
-        model = TelluricEstimator(cfg)
+        model = NeuralTelluricPredictor(cfg)
         observed = torch.randn(4, 12, 1024)
         out = model(
             observed,
@@ -110,13 +125,13 @@ class TestTelluricEstimatorShapes:
         assert out.params.shape == (4, 12, cfg.param_dim)
 
     def test_dimension_mismatch_raises(self) -> None:
-        model = TelluricEstimator(_config(t=12))
+        model = NeuralTelluricPredictor(_config(t=12))
         with pytest.raises(ValueError):
             model(torch.randn(2, 10, 1024))  # wrong number of exposures
 
     def test_arbitrary_batch_sizes(self) -> None:
         cfg = _config()
-        model = TelluricEstimator(cfg)
+        model = NeuralTelluricPredictor(cfg)
         for batch in (1, 2, 5):
             out = model(torch.randn(batch, 12, 1024))
             assert out.params.shape == (batch, 12, cfg.param_dim)
@@ -128,11 +143,12 @@ class TestTelluricEstimatorShapes:
     )
     def test_full_problem_shape(self) -> None:
         """Sanity shape at the real problem dims (small batch, single pass)."""
-        cfg = TelluricEstimatorConfig(
-            n_wavelength=51556, n_frames=73, n_queries=16, latent_dim=64,
-            metadata_dim=3, n_heads=4, dropout=0.0,
+        cfg = ModelConfig(
+            num_wavelength_bins=51556, n_frames_per_series=73,
+            num_queries=16, spectral_latent_dim=64,
+            metadata_dim=3, num_heads=4, dropout=0.0,
         )
-        model = TelluricEstimator(cfg)
+        model = NeuralTelluricPredictor(cfg)
         batch = 1
         out = model(
             torch.randn(batch, 73, 51556),
@@ -147,7 +163,7 @@ class TestTelluricEstimatorShapes:
 class TestGradientFlow:
     def test_gradient_flow_through_all_parameters(self) -> None:
         cfg = _config()
-        model = TelluricEstimator(cfg)
+        model = NeuralTelluricPredictor(cfg)
         opt = torch.optim.Adam(model.parameters(), lr=1e-3)
 
         observed = torch.randn(2, 12, 1024)
@@ -168,7 +184,7 @@ class TestGradientFlow:
         assert torch.isfinite(loss)
 
     def test_parameter_counts_and_components(self) -> None:
-        model = TelluricEstimator(_config())
+        model = NeuralTelluricPredictor(_config())
         counts = model.parameter_counts()
         assert set(counts) == {
             "SpectralEncoder (X)", "MetadataEncoder", "TimeEncoder",
@@ -207,7 +223,7 @@ class TestOverfitTiny:
     def test_fits_a_tiny_param_regression(self) -> None:
         """The estimator must reduce MSE(param_input, param_pred) on a tiny set."""
         cfg = _config(n_wave=512, t=12, q=8, d=32, heads=4)
-        model = TelluricEstimator(cfg)
+        model = NeuralTelluricPredictor(cfg)
         opt = torch.optim.Adam(model.parameters(), lr=5e-3)
 
         nights = 4
@@ -215,13 +231,13 @@ class TestOverfitTiny:
         g = torch.Generator().manual_seed(0)
         for _ in range(nights):
             x, s, _, meta = _synthetic_night(
-                cfg.n_wavelength, cfg.n_frames, g
+                cfg.num_wavelength_bins, cfg.n_frames_per_series, g
             )
             xs.append(x); ss.append(s.squeeze(0)); metas.append(meta)
         x = torch.stack(xs)               # (B, T, N)
         s = torch.stack(ss)               # (B, N)
         metadata = torch.stack(metas)     # (B, T, P) per-exposure metadata
-        param_input = torch.randn(nights, cfg.n_frames, cfg.param_dim)
+        param_input = torch.randn(nights, cfg.n_frames_per_series, cfg.param_dim)
 
         losses = []
         for _ in range(120):
@@ -236,9 +252,9 @@ class TestOverfitTiny:
 
 
 def _repo_model_config(n_wave: int = 1024, t: int = 12) -> "ModelConfig":
-    """Small repo-wide ModelConfig targeting the telluric_estimator arch."""
+    """Small repo-wide ModelConfig targeting the neural_telluric_predictor arch."""
     return ModelConfig(
-        architecture=ModelArchitecture.TELLURIC_ESTIMATOR,
+        architecture=ModelArchitecture.NEURAL_TELLURIC_PREDICTOR,
         num_wavelength_bins=n_wave,
         n_frames_per_series=t,
         num_queries=8,
@@ -252,30 +268,20 @@ def _repo_model_config(n_wave: int = 1024, t: int = 12) -> "ModelConfig":
 
 
 class TestRepoIntegration:
-    """Wiring of TelluricEstimator into ModelConfig / ModelRegistry."""
+    """Wiring of NeuralTelluricPredictor into ModelConfig / ModelRegistry."""
 
     def test_registry(self) -> None:
-        assert "telluric_estimator" in ModelRegistry.list_models()
-        assert ModelRegistry.get("telluric_estimator") is TelluricEstimator
+        assert "neural_telluric_predictor" in ModelRegistry.list_models()
+        assert ModelRegistry.get("neural_telluric_predictor") is NeuralTelluricPredictor
 
     def test_construct_from_repo_model_config(self) -> None:
-        model = TelluricEstimator(_repo_model_config())  # ModelConfig path
+        model = NeuralTelluricPredictor(_repo_model_config())  # ModelConfig path
         out = model(
             torch.randn(2, 12, 1024),
             stellar=torch.randn(2, 1024),
             metadata=torch.randn(2, 12, 3),
         )
         assert out.params.shape == (2, 12, 20)
-
-    def test_from_model_config_maps_fields(self) -> None:
-        cfg = TelluricEstimatorConfig.from_model_config(_repo_model_config())
-        assert cfg.n_wavelength == 1024
-        assert cfg.n_frames == 12 and cfg.n_queries == 8 and cfg.latent_dim == 32
-        assert cfg.x_encoder_channels == (8, 16, 32)
-        assert cfg.metadata_enc_dim == 16   # ModelConfig default
-        assert cfg.time_enc_dim == 16       # ModelConfig default
-        assert cfg.param_dim == 20          # ModelConfig default
-        assert cfg.fusion_hidden is None    # ModelConfig.fusion_hidden == 0 sentinel
 
 
 class TestNightLevelSplit:

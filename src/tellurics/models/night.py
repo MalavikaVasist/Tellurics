@@ -71,11 +71,12 @@ temporal queries, decoder depth, dropout and loss weighting be tuned.
 
 Example (tiny dims, shape check)
 --------------------------------
-    cfg = TelluricEstimatorConfig(n_wavelength=1024, n_frames=12, n_queries=8,
-                             latent_dim=32, metadata_dim=3, n_heads=4,
-                             x_encoder_channels=(8, 16, 32),
-                             s_encoder_channels=(8, 16, 32))
-    model = TelluricEstimator(cfg)
+    cfg = ModelConfig(num_wavelength_bins=1024, n_frames_per_series=12,
+                      num_queries=8, spectral_latent_dim=32,
+                      metadata_dim=3, num_heads=4,
+                      x_encoder_channels=[8, 16, 32],
+                      s_encoder_channels=[8, 16, 32])
+    model = NeuralTelluricPredictor(cfg)
     out = model(torch.randn(2, 12, 1024),            # X = T*S
                 stellar=torch.randn(2, 1024),        # S (stellar)
                 metadata=torch.randn(2, 12, 3))      # per-exposure metadata
@@ -84,7 +85,6 @@ Example (tiny dims, shape check)
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 
 import torch
 import torch.nn as nn
@@ -98,135 +98,14 @@ from .encoders import MetadataEncoder, SpectralEncoder, StellarEncoder, TimeEnco
 from .fusion import FusionMLP
 from .temporal import TemporalDecoder, TemporalPerceiver
 
-__all__ = ["TelluricEstimatorConfig", "TelluricEstimator"]
-
-
-# --------------------------------------------------------------------------- #
-# Configuration
-# --------------------------------------------------------------------------- #
-@dataclass(frozen=True)
-class TelluricEstimatorConfig:
-    """Hyper-parameters of the whole-night telluric estimator.
-
-    Defaults target the real problem: N = 51,556 samples, T = 73 exposures,
-    Q = 16 latent queries, d = 64-dim per-exposure code.
-    """
-
-    # ---- problem dimensions -------------------------------------------------
-    n_wavelength: int = 51556          # spectral samples N per exposure
-    n_frames: int = 73                 # exposures T per night
-    n_queries: int = 16                # learned latent tokens Q (temporal)
-    latent_dim: int = 64               # code dim d (per exposure / per token)
-    metadata_dim: int = 3              # per-exposure scalar metadata width P
-    metadata_enc_dim: int = 16         # encoded metadata code width C (per exposure)
-    metadata_enc_hidden: int | None = None  # metadata MLP hidden (None -> auto)
-    time_enc_dim: int = 16             # width k of the time code (per exposure)
-    param_dim: int = 20                # predicted per-exposure parameter width
-    param_decoder_hidden: int | None = None  # param-decoder MLP hidden (None -> auto)
-
-    # ---- attention ----------------------------------------------------------
-    n_heads: int = 4                   # heads for Perceiver + temporal decoder
-    dropout: float = 0.0
-
-    # ---- shared spectral encoder applied to X ------------------------------
-    x_encoder_channels: tuple[int, ...] = (16, 32, 64, 96, 128)
-    x_encoder_kernel: int = 7
-    x_encoder_stride: int = 2
-
-    # ---- independent stellar encoder applied to S --------------------------
-    s_encoder_channels: tuple[int, ...] = (16, 32, 64)
-    s_encoder_kernel: int = 7
-    s_encoder_stride: int = 2
-
-    # ---- spectral-code read-out --------------------------------------------
-    # After the strided CNN the remaining wavelength axis is adaptively pooled
-    # to this many bins per channel, flattened and projected to d.  Keeping a
-    # handful of spatial bins (instead of a single global average) preserves
-    # local spectral structure while still yielding exactly d numbers/sample.
-    encoder_pool_bins: int = 16
-
-    # ---- fusion MLP ---------------------------------------------------------
-    fusion_hidden: int | None = None   # None -> n_queries * latent_dim (1024)
-    fusion_layers: int = 2             # (in -> hidden) then (hidden -> q*d)
-
-    @classmethod
-    def from_model_config(cls, cfg: ModelConfig) -> "TelluricEstimatorConfig":
-        """Map the repo-wide :class:`ModelConfig` onto this config object.
-
-        Shared night-level fields (``num_wavelength_bins``,
-        ``n_frames_per_series``, ``num_queries``, ``spectral_latent_dim``,
-        ``metadata_dim``, ``num_heads``, ``dropout``) plus the estimator
-        specific fields added to ``ModelConfig`` are mapped one-to-one.
-        ``fusion_hidden == 0`` means "use n_queries * latent_dim".
-        """
-        return cls(
-            n_wavelength=cfg.num_wavelength_bins,
-            n_frames=cfg.n_frames_per_series,
-            n_queries=cfg.num_queries,
-            latent_dim=cfg.spectral_latent_dim,
-            metadata_dim=cfg.metadata_dim,
-            metadata_enc_dim=cfg.metadata_enc_dim,
-            metadata_enc_hidden=cfg.metadata_enc_hidden,
-            time_enc_dim=cfg.time_enc_dim,
-            param_dim=cfg.param_dim,
-            param_decoder_hidden=cfg.param_decoder_hidden,
-            n_heads=cfg.num_heads,
-            dropout=cfg.dropout,
-            x_encoder_channels=tuple(cfg.x_encoder_channels),
-            x_encoder_kernel=cfg.x_encoder_kernel,
-            x_encoder_stride=cfg.x_encoder_stride,
-            s_encoder_channels=tuple(cfg.s_encoder_channels),
-            s_encoder_kernel=cfg.s_encoder_kernel,
-            s_encoder_stride=cfg.s_encoder_stride,
-            encoder_pool_bins=cfg.encoder_pool_bins,
-            fusion_hidden=None if cfg.fusion_hidden == 0 else cfg.fusion_hidden,
-            fusion_layers=cfg.fusion_layers,
-        )
-
-
-# --------------------------------------------------------------------------- #
-# Small broadcast helpers
-# --------------------------------------------------------------------------- #
-def _broadcast_trailing(t: torch.Tensor, batch: int, feat: int) -> torch.Tensor:
-    """Allow a per-sample vector ``(feat,)`` to be given as ``(B, feat)``."""
-    if t.dim() == 1:
-        return t.unsqueeze(0).expand(batch, -1)
-    return t
-
-
-def _broadcast_metadata(
-    meta: torch.Tensor, batch: int, t: int, feat: int
-) -> torch.Tensor:
-    """Broadcast per-exposure metadata to ``(B, T, feat)``.
-
-    Accepts ``(B, T, feat)`` (full batch), ``(T, feat)`` (one night, shared
-    over the batch) or ``(feat,)`` (one exposure, shared over time + batch)
-    and validates the trailing feature width.
-    """
-    if meta.dim() == 3:
-        out = meta
-    elif meta.dim() == 2:                      # (T, feat): single night
-        out = meta.unsqueeze(0).expand(batch, -1, -1)
-    elif meta.dim() == 1:                      # (feat,): single exposure vector
-        out = meta.unsqueeze(0).unsqueeze(0).expand(batch, t, -1)
-    else:
-        raise ValueError(
-            f"metadata must be (B, T, {feat}), ({t}, {feat}) or ({feat},), "
-            f"got {tuple(meta.shape)}"
-        )
-    if out.shape != (batch, t, feat):
-        raise ValueError(
-            f"metadata must be (B, T, {feat}) = ({batch}, {t}, {feat}), "
-            f"got {tuple(meta.shape)}"
-        )
-    return out
+__all__ = ["NeuralTelluricPredictor"]
 
 
 # --------------------------------------------------------------------------- #
 # Top-level model
 # --------------------------------------------------------------------------- #
-@ModelRegistry.register("telluric_estimator")
-class TelluricEstimator(nn.Module):
+@ModelRegistry.register("neural_telluric_predictor")
+class NeuralTelluricPredictor(nn.Module):
     """Whole-night telluric parameter estimator (CNN AE + Perceiver bottleneck).
 
     Inputs:
@@ -245,22 +124,19 @@ class TelluricEstimator(nn.Module):
         intermediate_features: dictionary with every intermediate tensor.
     """
 
-    def __init__(self, config: TelluricEstimatorConfig | ModelConfig) -> None:
-        # Accept the repo-wide ModelConfig (registry / Lightning path) as well
-        # as the native TelluricEstimatorConfig (standalone / scripting path).
-        if isinstance(config, ModelConfig):
-            config = TelluricEstimatorConfig.from_model_config(config)
+    def __init__(self, config: ModelConfig) -> None:
         super().__init__()
         self.config = config
-        n_w = config.n_wavelength
-        t = config.n_frames
-        q = config.n_queries
-        d = config.latent_dim
+        n_w = config.num_wavelength_bins
+        t = config.n_frames_per_series
+        q = config.num_queries
+        d = config.spectral_latent_dim
         p = config.metadata_dim
+        heads = config.num_heads
 
         assert n_w > 0 and t > 0 and q > 0 and d > 0
-        assert d % config.n_heads == 0, (
-            f"latent_dim={d} must be divisible by n_heads={config.n_heads}"
+        assert d % heads == 0, (
+            f"latent_dim={d} must be divisible by n_heads={heads}"
         )
 
         self.q = q
@@ -290,14 +166,16 @@ class TelluricEstimator(nn.Module):
         )
         # 1.55 continuous exposure-time encoder: time_hours (B, T) -> (B, T, k)
         self.time_encoder = TimeEncoder(out_dim=k)
+
         # 1.6 pre-temporal projection: concat[Z (d), M_code (C), time (k)]
         #     = (d + C + k)-wide tokens -> d-wide Perceiver tokens.
-        self._token_dim = d + (c if p > 0 else 0) + k
+        self._token_dim = d + c + k
         self.pre_temporal = nn.Linear(self._token_dim, d)
+
         # 2. temporal Perceiver: d-dim exposure tokens -> Q latent tokens
         #    (input_dim == dim, so it performs no extra internal projection)
         self.temporal_perceiver = TemporalPerceiver(
-            q, d, config.n_heads, config.dropout
+            q, d, heads, config.dropout
         )
         # 4. independent stellar encoder for S (own weights)
         self.stellar_encoder = StellarEncoder(
@@ -312,7 +190,7 @@ class TelluricEstimator(nn.Module):
         )
         # 8. temporal decoder: Q latent tokens -> T per-exposure codes
         self.temporal_decoder = TemporalDecoder(
-            t, d, config.n_heads, config.dropout
+            t, d, heads, config.dropout
         )
         # 9. per-exposure parameter decoder: d-dim code -> P parameters
         self.param_decoder = ParamDecoder(
@@ -373,7 +251,7 @@ class TelluricEstimator(nn.Module):
         if t != self.t:
             raise ValueError(
                 f"Expected T={self.t} exposures per night, got {t}. "
-                "Set TelluricEstimatorConfig.n_frames accordingly."
+                "Set ModelConfig.n_frames_per_series accordingly."
             )
         if n != self.n_wavelength:
             raise ValueError(
@@ -386,39 +264,31 @@ class TelluricEstimator(nn.Module):
         assert z.shape == (batch, self.t, self.d), z.shape
 
         # 1.5 per-exposure metadata -> C-dim code (zeros when absent/disabled)
-        if self.metadata_dim > 0:
-            if metadata is not None:
-                m = _broadcast_metadata(
-                    metadata, batch, self.t, self.metadata_dim
-                )
-            else:
-                m = torch.zeros(
-                    batch, self.t, self.metadata_dim, device=device
-                )
-            m_code = self.metadata_encoder(m)        # (B, T, C)
-        else:
-            m_code = None
+        if metadata is not None and metadata.dim() == 3:
+            if metadata.shape != (batch, self.t, self.metadata_dim):
+                                raise ValueError(
+                                    f"metadata must be (B, T, {self.metadata_dim}) = ({batch}, {t}, {self.metadata_dim}), "
+                                    f"got {tuple(metadata.shape)}"
+                                )
+                
+            else: 
+                 m = metadata
+                
+        m_code = self.metadata_encoder(m)        # (B, T, C)
 
         # 1.55 continuous exposure time (time_hours) -> k-dim time code.
         #     (B, T) -> (B, T, k); acts as a continuous positional encoding
         #     over the exposure axis.
-        if time is None:
-            # No exposure times supplied (e.g. pure-shape calls): use a zero
-            # offset so the code path still runs. Production batches should
-            # pass time = time_hours (B, T).
-            time = torch.zeros(batch, self.t, device=device)
         z_time = self.time_encoder(time)             # (B, T, k)
 
         # 1.6 concat spectral + metadata + time codes, then project to d:
         #     (B,T,d) + (B,T,C) + (B,T,k) = (B,T,96) for d=64, C=16, k=16
         parts = [z]
-        if m_code is not None:
-            parts.append(m_code)
+        parts.append(m_code)
         parts.append(z_time)
+        
         tokens_concat = torch.cat(parts, dim=-1)     # (B, T, d + C + k)
-        assert tokens_concat.shape == (
-            batch, self.t, self._token_dim,
-        ), tokens_concat.shape
+        assert tokens_concat.shape == (batch, self.t, self._token_dim,), tokens_concat.shape
 
         tokens = self.pre_temporal(tokens_concat)    # (B, T, d)  e.g. 96 -> 64
         assert tokens.shape == (batch, self.t, self.d), tokens.shape
@@ -431,25 +301,21 @@ class TelluricEstimator(nn.Module):
         h_x = l.reshape(batch, self.q * self.d)      # (B, 1024)
 
         # 4. stellar code (separate encoder, own weights)
-        if stellar is not None:
-            s = _broadcast_trailing(stellar, batch, self.n_wavelength)
-            if s.shape != (batch, self.n_wavelength):
-                raise ValueError(
-                    f"stellar must be ({batch}, {self.n_wavelength}) or "
-                    f"({self.n_wavelength},), got {tuple(stellar.shape)}"
-                )
-            h_s = self.stellar_encoder(s)            # (B, d)
-        else:
-            h_s = torch.zeros(batch, self.d, device=device)
+        s = stellar
+        if s.shape != (batch, self.n_wavelength):
+            raise ValueError(
+                f"stellar must be ({batch}, {self.n_wavelength}) or "
+                f"({self.n_wavelength},), got {tuple(stellar.shape)}"
+            )
+        h_s = self.stellar_encoder(s)            # (B, d)
+
         assert h_s.shape == (batch, self.d), h_s.shape
 
         # 6. fusion  concat[h_X, h_S] -> MLP -> h_fused (B, q*d)
         #    (metadata enters earlier, concatenated with the spectral codes
         #    feeding the Perceiver, not here)
         fusion_vec = torch.cat([h_x, h_s], dim=-1)   # (B, q*d + d) = (B, 1088)
-        assert fusion_vec.shape == (
-            batch, self.q * self.d + self.d,
-        ), fusion_vec.shape
+        assert fusion_vec.shape == (batch, self.q * self.d + self.d,), fusion_vec.shape
         h_fused = self.fusion(fusion_vec)            # (B, q*d) == (B, 1024)
         assert h_fused.shape == (batch, self.q * self.d), h_fused.shape
 

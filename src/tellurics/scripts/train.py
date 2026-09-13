@@ -10,12 +10,12 @@ Pipeline
    fixed (seeded) Phoenix stellar spectrum sampled from ``data/phoenix/convolved``,
    and returns ``observed (B,T,N)`` + ``stellar (B,N)`` + ``theta`` (dict with
    time / metadata (pressure,temp,humidity) / params (16 target cols)).
-3. :class:`TelluricEstimatorModule` trains/validates with
+3. :class:`TelluricTrainingModule` trains/validates with
    ``loss = MSE(estimator(...).params, theta["params"])``.
 
 Manifest layout (see ``experiments/experiment2.yaml``)::
 
-    run_dir:    # where the artefacts go, e.g. runs/temporal_conv_001/
+    run_dir:    # where the artefacts go, e.g. runs/experiment1/
     wandb:      # -> WandbConfig     (project + run title)
     model:      # -> ModelConfig     (estimator architecture + dims)
     data:       # -> DataConfig      (input paths + night-level split)
@@ -25,7 +25,7 @@ Manifest layout (see ``experiments/experiment2.yaml``)::
 
 Each run writes a self-describing directory::
 
-    runs/temporal_conv_001/
+    runs/experiment1/
     |-- config.yaml               # resolved copy of the manifest
     |-- stellar_assignment.csv    # night -> star audit
     |-- logs/                     # W&B local files
@@ -33,10 +33,10 @@ Each run writes a self-describing directory::
 
 The CLI is deliberately tiny -- everything else lives in the manifest::
 
-    python -m tellurics.scripts.train --config experiments/experiment2.yaml
+    python -m tellurics.scripts.train --config experiments/experiment1.yaml
 
-    python -m tellurics.scripts.train --config experiments/experiment2.yaml \
-        --device cpu --resume runs/temporal_conv_001/checkpoints/telluric_estimator/x.ckpt
+    python -m tellurics.scripts.train --config experiments/experiment1.yaml \
+        --device cpu --resume runs/experiment1/checkpoints/neural_telluric_predictor/x.ckpt
 """
 
 import argparse
@@ -60,7 +60,7 @@ from tellurics.configs import (
     load_config,
 )
 from tellurics.data.datamodule import TelluricDataModule
-from tellurics.training.module import TelluricEstimatorModule
+from tellurics.training.module import TelluricTrainingModule
 from tellurics.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -142,7 +142,7 @@ def build_datamodule(
 
 def build_model(
     model_config: ModelConfig, training_config: TrainingConfig
-) -> TelluricEstimatorModule:
+) -> TelluricTrainingModule:
     """Build the LightningModule (registry-resolved estimator) to train."""
     logger.info(
         f"Training {model_config.architecture.value} | "
@@ -151,7 +151,7 @@ def build_model(
         f"metadata_dim={model_config.metadata_dim}, "
         f"param_dim={model_config.param_dim}"
     )
-    return TelluricEstimatorModule(model_config, training_config)
+    return TelluricTrainingModule(model_config, training_config)
 
 
 def build_trainer(
@@ -166,18 +166,19 @@ def build_trainer(
 
     callbacks: list[pl.Callback] = [
         ModelCheckpoint(
-            dirpath=checkpoint_dir / "telluric_estimator",
-            monitor=config.early_stopping_metric,
+            dirpath=checkpoint_dir / "neural_telluric_predictor",
+            monitor=config.monitor_metric,
             mode="min",
-            save_top_k=1,
-            filename="estimator-{epoch:03d}-{val_loss:.4f}",
+            every_n_epochs=config.save_every_n_epochs,
+            save_top_k=-1,
+            filename="estimator-{epoch:03d}-{validation_loss:.4f}",
         ),
         LearningRateMonitor(logging_interval="epoch"),
     ]
     if config.early_stopping_patience > 0:
         callbacks.append(
             EarlyStopping(
-                monitor=config.early_stopping_metric,
+                monitor=config.monitor_metric,
                 patience=config.early_stopping_patience,
                 mode="min",
             )

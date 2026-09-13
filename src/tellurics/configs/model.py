@@ -11,7 +11,7 @@ class ModelArchitecture(str, Enum):
     CNN = "cnn"
     TRANSFORMER = "transformer"
     MAMBA = "mamba"
-    TELLURIC_ESTIMATOR = "telluric_estimator"
+    NEURAL_TELLURIC_PREDICTOR = "neural_telluric_predictor"
 
 
 class FusionMethod(str, Enum):
@@ -69,7 +69,7 @@ class ModelConfig(BaseModel):
     )
 
     # Whole-night telluric parameter estimator (see models/night.py).
-    # These fields are only consumed when architecture == "telluric_estimator";
+    # These fields are only consumed when architecture == "neural_telluric_predictor";
     # they are ignored by every other architecture.
     x_encoder_channels: list[int] = Field(
         default_factory=lambda: [16, 32, 64, 96, 128],
@@ -105,27 +105,27 @@ class ModelConfig(BaseModel):
         default=16, gt=0,
         description="Width of the per-exposure metadata code (C), concatenated "
                     "with the spectral code before the temporal Perceiver "
-                    "(telluric_estimator only).",
+                    "(neural_telluric_predictor only).",
     )
     metadata_enc_hidden: int | None = Field(
         default=None, gt=0,
         description="Hidden width of the per-exposure metadata encoder MLP "
-                    "(None -> auto; telluric_estimator only).",
+                    "(None -> auto; neural_telluric_predictor only).",
     )
     time_enc_dim: int = Field(
         default=16, gt=0,
         description="Width (k) of the per-exposure time code produced by the "
                     "TimeEncoder from continuous exposure times (time_hours), "
                     "concatenated with the spectral + metadata codes before "
-                    "the temporal Perceiver (telluric_estimator only).",
+                    "the temporal Perceiver (neural_telluric_predictor only).",
     )
     param_dim: int = Field(
         default=20, gt=0,
         description="Number of telluric/atmospheric parameters predicted per "
-                    "exposure by the param-decoder head (telluric_estimator only).",
+                    "exposure by the param-decoder head (neural_telluric_predictor only).",
     )
     param_decoder_hidden: int | None = Field(
         default=None, gt=0,
         description="Hidden width of the per-exposure param-decoder MLP "
-                    "(None -> auto; telluric_estimator only).",
+                    "(None -> auto; neural_telluric_predictor only).",
     )

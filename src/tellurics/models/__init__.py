@@ -17,7 +17,7 @@ from tellurics.models.fusion import (
     FusionMLP,
 )
 from tellurics.models.mamba import MambaSpectralModel
-from tellurics.models.night import TelluricEstimator, TelluricEstimatorConfig
+from tellurics.models.night import NeuralTelluricPredictor
 from tellurics.models.output import ModelOutput
 from tellurics.models.temporal import (
     MultiHeadCrossAttention,
@@ -34,8 +34,7 @@ __all__ = [
     "MambaSpectralModel",
     "ModelOutput",
     # Whole-night telluric parameter estimator.
-    "TelluricEstimatorConfig",
-    "TelluricEstimator",
+    "NeuralTelluricPredictor",
     # Per-exposure encoders (spectrum / stellar / metadata / time).
     "SpectralEncoder",
     "StellarEncoder",

@@ -12,7 +12,7 @@ class WandbConfig(BaseModel):
     """
 
     project: str = Field(
-        default="telluric_estimator",
+        default="neural_telluric_predictor",
         description="W&B project the run is logged to.",
     )
     title: str | None = Field(
