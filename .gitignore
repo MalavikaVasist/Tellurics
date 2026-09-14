@@ -36,7 +36,7 @@ Phoenix/medium_res/
 
 
 # Generated simulation data (downloaded/produced, not source)
-data/
+Tellurics/data/
 
 # TelFit telluric template outputs
 TelFit/telluric_templates/chunks/
