@@ -3,7 +3,7 @@
 Pipeline
 --------
 1. The night-major ``data/telluric_timeseries/telluric_templates.h5``
-   (4500 nights x 73 frames x 51556 samples + labels) is produced once, out of
+   (4500 nights x 73 frames x 51557 samples + labels) is produced once, out of
    band, by the ``tests/testing_dataset_reshape.ipynb`` notebook, which
    reshapes the flat ``data/telluric_templates.h5``.
 2. :class:`TelluricDataModule` loads whole nights, multiplies each night by a

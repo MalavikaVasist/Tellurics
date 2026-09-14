@@ -135,7 +135,9 @@ class TelluricDataModule(pl.LightningDataModule):
 
     def _assign_stars(self) -> None:
         """Assign a fixed stellar spectrum per night and write the audit CSV."""
-        self.stellar_pool = StellarPool(self.config.phoenix_dir)
+        self.stellar_pool = StellarPool(
+            self.config.phoenix_dir, scale=self.config.stellar_scale
+        )
         self.stellar_assignment = assign_stellar_per_night(
             self.n_nights, self.stellar_pool, seed=self.config.seed
         )

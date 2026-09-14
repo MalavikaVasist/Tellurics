@@ -6,7 +6,7 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from tellurics.configs.model import ModelArchitecture, ModelConfig
+from tellurics.configs.model import ModelConfig
 from tellurics.models.night import NeuralTelluricPredictor
 from tellurics.models.output import ModelOutput
 from tellurics.utils.registry import ModelRegistry
@@ -20,17 +20,33 @@ def _config(
     metadata_dim: int = 3,
     heads: int = 4,
 ) -> ModelConfig:
-    """Small dims so the tests stay fast on CPU (a repo-wide ModelConfig)."""
+    """Small dims so the tests stay fast on CPU (a repo-wide ModelConfig).
+
+    ``ModelConfig`` has no defaults, so every field is stated here.
+    """
     return ModelConfig(
+        architecture="neural_telluric_predictor",
         num_wavelength_bins=n_wave,
         n_frames_per_series=t,
+        metadata_dim=metadata_dim,
+        param_dim=16,
         num_queries=q,
         spectral_latent_dim=d,
-        metadata_dim=metadata_dim,
         num_heads=heads,
-        x_encoder_channels=[8, 16, 32],
-        s_encoder_channels=[8, 16, 32],
         dropout=0.0,
+        x_encoder_channels=[8, 16, 32],
+        x_encoder_kernel=7,
+        x_encoder_stride=2,
+        s_encoder_channels=[8, 16, 32],
+        s_encoder_kernel=7,
+        s_encoder_stride=2,
+        encoder_pool_bins=16,
+        fusion_hidden=0,
+        fusion_layers=2,
+        metadata_enc_dim=16,
+        metadata_enc_hidden=None,
+        time_enc_dim=16,
+        param_decoder_hidden=None,
     )
 
 
@@ -53,8 +69,6 @@ class TestNeuralTelluricPredictorShapes:
         assert out.attention_weights.shape == (
             2, cfg.num_queries, cfg.n_frames_per_series,
         )
-        # the spectral (transmission) head is gone: params only
-        assert out.telluric is None
 
         # intermediate features have exactly the documented shapes
         feats = out.intermediate_features
@@ -95,34 +109,34 @@ class TestNeuralTelluricPredictorShapes:
             2, cfg.n_frames_per_series, cfg.param_dim,
         )
 
-    def test_time_is_optional(self) -> None:
-        """Without a `time` input the model still runs (zero time offset)."""
+    def test_missing_inputs_raise(self) -> None:
+        """stellar, metadata and time are required: there is no optional path."""
         cfg = _config()
         model = NeuralTelluricPredictor(cfg)
-        observed = torch.randn(3, cfg.n_frames_per_series, cfg.num_wavelength_bins)
-        out = model(observed, stellar=None, metadata=None)
-        assert out.params.shape == (3, cfg.n_frames_per_series, cfg.param_dim)
-        assert out.intermediate_features["time_code"].shape == (
-            3, cfg.n_frames_per_series, cfg.time_enc_dim,
-        )
+        observed = torch.randn(2, cfg.n_frames_per_series, cfg.num_wavelength_bins)
+        stellar = torch.randn(2, cfg.num_wavelength_bins)
+        metadata = torch.randn(2, cfg.n_frames_per_series, cfg.metadata_dim)
+        hours = torch.rand(2, cfg.n_frames_per_series)
 
-    def test_stellar_and_metadata_are_optional(self) -> None:
-        cfg = _config()
-        model = NeuralTelluricPredictor(cfg)
-        observed = torch.randn(3, 12, 1024)
-        out = model(observed, stellar=None, metadata=None)
-        assert out.params.shape == (3, 12, cfg.param_dim)
+        with pytest.raises(AttributeError):  # no time -> TimeEncoder(None)
+            model(observed, stellar=stellar, metadata=metadata)
+        with pytest.raises(NameError):       # no metadata -> code left unbound
+            model(observed, stellar=stellar, time=hours)
+        with pytest.raises(AttributeError):  # no stellar -> None.shape
+            model(observed, metadata=metadata, time=hours)
 
-    def test_broadcasts_single_stellar_and_metadata(self) -> None:
+    def test_unbatched_stellar_raises(self) -> None:
+        """S must be (B, N); a bare (N,) spectrum is not broadcast."""
         cfg = _config()
         model = NeuralTelluricPredictor(cfg)
-        observed = torch.randn(4, 12, 1024)
-        out = model(
-            observed,
-            stellar=torch.randn(1024),   # (N,)
-            metadata=torch.randn(3),     # (P,) shared over exposures
-        )
-        assert out.params.shape == (4, 12, cfg.param_dim)
+        observed = torch.randn(4, cfg.n_frames_per_series, cfg.num_wavelength_bins)
+        with pytest.raises(ValueError):
+            model(
+                observed,
+                stellar=torch.randn(cfg.num_wavelength_bins),  # (N,)
+                metadata=torch.randn(4, 12, cfg.metadata_dim),
+                time=torch.rand(4, 12),
+            )
 
     def test_dimension_mismatch_raises(self) -> None:
         model = NeuralTelluricPredictor(_config(t=12))
@@ -133,7 +147,12 @@ class TestNeuralTelluricPredictorShapes:
         cfg = _config()
         model = NeuralTelluricPredictor(cfg)
         for batch in (1, 2, 5):
-            out = model(torch.randn(batch, 12, 1024))
+            out = model(
+                torch.randn(batch, 12, 1024),
+                stellar=torch.randn(batch, 1024),
+                metadata=torch.randn(batch, 12, cfg.metadata_dim),
+                time=torch.rand(batch, 12),
+            )
             assert out.params.shape == (batch, 12, cfg.param_dim)
 
     @pytest.mark.skipif(
@@ -143,17 +162,14 @@ class TestNeuralTelluricPredictorShapes:
     )
     def test_full_problem_shape(self) -> None:
         """Sanity shape at the real problem dims (small batch, single pass)."""
-        cfg = ModelConfig(
-            num_wavelength_bins=51556, n_frames_per_series=73,
-            num_queries=16, spectral_latent_dim=64,
-            metadata_dim=3, num_heads=4, dropout=0.0,
-        )
+        cfg = _config(n_wave=51556, t=73, q=16, d=64, metadata_dim=3, heads=4)
         model = NeuralTelluricPredictor(cfg)
         batch = 1
         out = model(
             torch.randn(batch, 73, 51556),
             stellar=torch.randn(batch, 51556),
             metadata=torch.randn(batch, 73, 3),
+            time=torch.rand(batch, 73),
         )
         assert out.params.shape == (batch, 73, cfg.param_dim)
         assert out.latent.shape == (batch, 1024)
@@ -169,10 +185,11 @@ class TestGradientFlow:
         observed = torch.randn(2, 12, 1024)
         stellar = torch.randn(2, 1024)
         metadata = torch.randn(2, 12, cfg.metadata_dim)
+        hours = torch.rand(2, 12)                   # exposure times
         target = torch.randn(2, 12, cfg.param_dim)  # random param target
 
         opt.zero_grad()
-        out = model(observed, stellar=stellar, metadata=metadata)
+        out = model(observed, stellar=stellar, metadata=metadata, time=hours)
         loss = F.mse_loss(out.params, target)
         loss.backward()
         opt.step()
@@ -238,11 +255,12 @@ class TestOverfitTiny:
         s = torch.stack(ss)               # (B, N)
         metadata = torch.stack(metas)     # (B, T, P) per-exposure metadata
         param_input = torch.randn(nights, cfg.n_frames_per_series, cfg.param_dim)
+        hours = torch.rand(nights, cfg.n_frames_per_series)
 
         losses = []
         for _ in range(120):
             opt.zero_grad()
-            out = model(x, stellar=s, metadata=metadata)
+            out = model(x, stellar=s, metadata=metadata, time=hours)
             loss = F.mse_loss(out.params, param_input)
             loss.backward()
             opt.step()
@@ -253,18 +271,7 @@ class TestOverfitTiny:
 
 def _repo_model_config(n_wave: int = 1024, t: int = 12) -> "ModelConfig":
     """Small repo-wide ModelConfig targeting the neural_telluric_predictor arch."""
-    return ModelConfig(
-        architecture=ModelArchitecture.NEURAL_TELLURIC_PREDICTOR,
-        num_wavelength_bins=n_wave,
-        n_frames_per_series=t,
-        num_queries=8,
-        spectral_latent_dim=32,
-        metadata_dim=3,
-        num_heads=4,
-        dropout=0.0,
-        x_encoder_channels=[8, 16, 32],
-        s_encoder_channels=[8, 16, 32],
-    )
+    return _config(n_wave=n_wave, t=t, q=8, d=32, metadata_dim=3, heads=4)
 
 
 class TestRepoIntegration:
@@ -275,13 +282,15 @@ class TestRepoIntegration:
         assert ModelRegistry.get("neural_telluric_predictor") is NeuralTelluricPredictor
 
     def test_construct_from_repo_model_config(self) -> None:
-        model = NeuralTelluricPredictor(_repo_model_config())  # ModelConfig path
+        cfg = _repo_model_config()
+        model = NeuralTelluricPredictor(cfg)  # ModelConfig path
         out = model(
             torch.randn(2, 12, 1024),
             stellar=torch.randn(2, 1024),
             metadata=torch.randn(2, 12, 3),
+            time=torch.rand(2, 12),
         )
-        assert out.params.shape == (2, 12, 20)
+        assert out.params.shape == (2, 12, cfg.param_dim)
 
 
 class TestNightLevelSplit:

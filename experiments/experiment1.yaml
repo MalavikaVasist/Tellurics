@@ -8,7 +8,7 @@
 # the P telluric / atmospheric parameters that parametrize each exposure (e.g.
 # via a TelFit-style forward model):
 #
-#   X = T*S  (B, T=73, N=51556)        ->  param_pred (B, T, 16)
+#   X = T*S  (B, T=73, N=51557)        ->  param_pred (B, T, 16)
 #   metadata (B, T, 3)  per exposure        loss = MSE(param_input - param_pred)
 #
 # Pipeline (tellurics.models.night.NeuralTelluricPredictor, registry id
@@ -39,7 +39,7 @@ wandb:
 
 model:
   architecture: neural_telluric_predictor  # ModelArchitecture enum value
-  num_wavelength_bins: 51556             # spectral samples N per exposure
+  num_wavelength_bins: 51557             # spectral samples N per exposure
   n_frames_per_series: 73                # exposures T per night
   num_queries: 16                        # learned latent tokens Q (temporal)
   spectral_latent_dim: 64                # per-exposure spectral code dim d
@@ -68,6 +68,7 @@ data:
   # Input paths (relative to the repo root).
   night_h5: data/telluric_timeseries/telluric_templates.h5   # built by tests/testing_dataset_reshape.ipynb
   phoenix_dir: data/phoenix/convolved    # stellar *.fits pool
+  stellar_scale: true                    # normalize each stellar spectrum to unit mean flux
   # Night-level split (test = 1 - train - val).
   train_fraction: 0.8
   val_fraction: 0.1

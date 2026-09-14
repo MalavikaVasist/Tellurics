@@ -209,7 +209,7 @@ class TelluricTrainingModule(pl.LightningModule):
 
     # ------------------------------------------------------------------ #
     def configure_optimizers(self) -> dict:
-        """Configure the optimizer and LR scheduler (mirrors module.py)."""
+        """Configure the optimizer and LR scheduler."""
         opt_config = self.training_config.optimizer
         sched_config = self.training_config.scheduler
 

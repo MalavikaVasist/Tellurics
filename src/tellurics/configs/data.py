@@ -29,6 +29,11 @@ class DataConfig(BaseModel):
         default=Path("data/phoenix/convolved"),
         description="Directory holding the stellar *.fits pool.",
     )
+    stellar_scale: bool = Field(
+        default=True,
+        description="Normalize each stellar spectrum to unit mean flux "
+                    "before use (``StellarPool(scale=...)``).",
+    )
 
     # -- DataLoader ------------------------------------------------------ #
     pin_memory: bool = True

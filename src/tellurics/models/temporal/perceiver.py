@@ -41,7 +41,7 @@ class TemporalPerceiver(nn.Module):
             None if self.input_dim == dim else nn.Linear(self.input_dim, dim)
         )
         self.queries = nn.Parameter(
-            torch.randn(n_queries, dim) * (dim ** -0.5)  # or 0.02
+            torch.randn(n_queries, dim) * (dim ** -0.5)
         )
         self.block = _CrossAttentionBlock(dim, num_heads, dropout, ff_mult)
 

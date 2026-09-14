@@ -30,20 +30,24 @@ env/
 *.npz
 
 # Phoenix stellar spectra (large, downloaded separately)
-Phoenix/downloads/
-Phoenix/high_res/
-Phoenix/medium_res/
+/Phoenix/
 
 
 # Generated simulation data (downloaded/produced, not source)
-Tellurics/data/
+# "/data/" is anchored to the repo root; an unanchored "data/" would also
+# match the source package src/tellurics/data/ and TelFit/data/.
+/data/
+!/src/tellurics/data/
+
+# Vendored TelFit reference data
+/TelFit/data/
 
 # TelFit telluric template outputs
-TelFit/telluric_templates/chunks/
+TelFit/telluric_templates/
 
-# SLURM logs
+# SLURM logs and TelFit runtime logs
 slurm-*.out
-*.log
+/TelFit/*.log
 
 # Training outputs
 runs/
@@ -72,14 +76,6 @@ htmlcov/
 # TelFit runtime
 *.lock
 OutputModels/
-
-# SLURM logs
-slurm-*.out
-*.log
-
-Phoenix/
-
-Telfit/telluric_templates
 
 TelFit-1.4.0.tar.gz
 

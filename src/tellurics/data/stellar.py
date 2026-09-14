@@ -24,8 +24,9 @@ class StellarPool:
         directory: Directory containing the stellar FITS files.
         star_files: Optional list of FITS filenames to load. If None, all
             ``*.fits`` files in ``directory`` are loaded.
-        scale: If True, normalize each stellar spectrum so its mean flux is 1.
-            If False, return the original flux values.
+        scale: If True, normalize each stellar spectrum so its mean flux is 1
+            (raises if that mean is zero or non-finite). If False, return the
+            original flux values.
     """
 
     _cache: tuple[tuple[str, ...], np.ndarray] | None = None
@@ -86,7 +87,13 @@ class StellarPool:
                 flux = np.asarray(data["FLUX"], np.float32)
 
             if scale:
-                flux = flux / flux.mean()
+                mean = float(flux.mean())
+                if not np.isfinite(mean) or mean == 0.0:
+                    raise ValueError(
+                        f"cannot normalize {path.name}: mean flux is {mean}. "
+                        "Set data.stellar_scale=false to use the raw flux."
+                    )
+                flux = flux / mean
 
             spectra.append(flux)
             names.append(path.name)

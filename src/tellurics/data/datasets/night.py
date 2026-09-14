@@ -52,7 +52,6 @@ class TelluricTimeseriesDataset(Dataset[dict[str, object]]):
 
     Returns a dict with:
         observed:   (T, N)   X = T_tell * S
-        transmission: (T, N) ground-truth T_tell
         stellar:    (N,)     the S used to build observed
         theta: {
             "time":     (T,)
@@ -126,7 +125,6 @@ class TelluricTimeseriesDataset(Dataset[dict[str, object]]):
 
         return {
             "observed": torch.from_numpy(observed),
-            "transmission": torch.from_numpy(trans),
             "stellar": torch.from_numpy(s),
             "theta": {
                 "time": torch.from_numpy(time),

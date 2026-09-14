@@ -24,7 +24,7 @@ The two natural dimensions are exploited separately:
 
 Architecture (shape-annotated)
 ------------------------------
-    X (B, 73, 51556)              M (B, 73, 3)       time_hours (B, 73)
+    X (B, 73, 51557)              M (B, 73, 3)       time_hours (B, 73)
         | SpectralEncoder         | MetadataEncoder   | TimeEncoder (MLP)
         v (one 1D CNN/exposure)   v (shared MLP)      v (shared MLP)
     Z (B, 73, 64)            M_code (B, 73, 16)   z_time (B, 73, 16)
@@ -71,15 +71,24 @@ temporal queries, decoder depth, dropout and loss weighting be tuned.
 
 Example (tiny dims, shape check)
 --------------------------------
-    cfg = ModelConfig(num_wavelength_bins=1024, n_frames_per_series=12,
-                      num_queries=8, spectral_latent_dim=32,
-                      metadata_dim=3, num_heads=4,
-                      x_encoder_channels=[8, 16, 32],
-                      s_encoder_channels=[8, 16, 32])
+    cfg = ModelConfig(
+        architecture="neural_telluric_predictor",
+        # problem dimensions (must match the data)
+        num_wavelength_bins=1024, n_frames_per_series=12,
+        metadata_dim=3, param_dim=20,
+        # architecture geometry
+        num_queries=8, spectral_latent_dim=32, num_heads=4, dropout=0.1,
+        x_encoder_channels=[8, 16, 32], x_encoder_kernel=7, x_encoder_stride=2,
+        s_encoder_channels=[8, 16, 32], s_encoder_kernel=7, s_encoder_stride=2,
+        encoder_pool_bins=16, fusion_hidden=0, fusion_layers=2,
+        metadata_enc_dim=16, metadata_enc_hidden=None,
+        time_enc_dim=16, param_decoder_hidden=None,
+    )
     model = NeuralTelluricPredictor(cfg)
     out = model(torch.randn(2, 12, 1024),            # X = T*S
                 stellar=torch.randn(2, 1024),        # S (stellar)
-                metadata=torch.randn(2, 12, 3))      # per-exposure metadata
+                metadata=torch.randn(2, 12, 3),      # per-exposure metadata
+                time=torch.rand(2, 12))              # exposure times (hours)
     assert out.params.shape == (2, 12, 20)           # param_pred (B, T, P)
 """
 
@@ -262,7 +271,6 @@ class NeuralTelluricPredictor(nn.Module):
             raise ValueError(
                 f"Expected N={self.n_wavelength} wavelength samples, got {n}."
             )
-        device = observed.device
 
         # 1. shared spectral CNN over the exposures (same weights for all t)
         z = self.spectral_encoder(observed)          # (B, T, d)

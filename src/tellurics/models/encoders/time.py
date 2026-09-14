@@ -1,4 +1,4 @@
-"""Per-exposure continuous-time encoder (time-honours -> code)."""
+"""Per-exposure continuous-time encoder (time_hours -> code)."""
 
 import torch
 import torch.nn as nn

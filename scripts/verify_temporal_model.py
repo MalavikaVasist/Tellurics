@@ -37,6 +37,42 @@ from tellurics.configs.model import ModelConfig
 from tellurics.models.night import NeuralTelluricPredictor as TelluricModel
 
 
+def _tiny_config(
+    n_wavelength: int,
+    n_frames: int,
+    n_queries: int,
+    latent_dim: int,
+    metadata_dim: int,
+    n_heads: int,
+    dropout: float,
+) -> ModelConfig:
+    """Explicit demo ModelConfig (the repo-wide config has no defaults)."""
+    return ModelConfig(
+        architecture="neural_telluric_predictor",
+        num_wavelength_bins=n_wavelength,
+        n_frames_per_series=n_frames,
+        metadata_dim=metadata_dim,
+        param_dim=20,
+        num_queries=n_queries,
+        spectral_latent_dim=latent_dim,
+        num_heads=n_heads,
+        dropout=dropout,
+        x_encoder_channels=[16, 32, 64],
+        x_encoder_kernel=7,
+        x_encoder_stride=2,
+        s_encoder_channels=[16, 32, 64],
+        s_encoder_kernel=7,
+        s_encoder_stride=2,
+        encoder_pool_bins=16,
+        fusion_hidden=0,
+        fusion_layers=2,
+        metadata_enc_dim=16,
+        metadata_enc_hidden=None,
+        time_enc_dim=16,
+        param_decoder_hidden=None,
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Tiny physically-motivated generator:  X = T * S
 # --------------------------------------------------------------------------- #
@@ -121,13 +157,14 @@ def parameter_table(model: TelluricModel) -> None:
 
 
 def run_shape_check(args: argparse.Namespace) -> None:
-    cfg = ModelConfig(
-        num_wavelength_bins=args.n_wavelength,
-        n_frames_per_series=args.n_frames,
-        num_queries=args.n_queries,
-        spectral_latent_dim=args.latent_dim,
+    cfg = _tiny_config(
+        n_wavelength=args.n_wavelength,
+        n_frames=args.n_frames,
+        n_queries=args.n_queries,
+        latent_dim=args.latent_dim,
         metadata_dim=args.metadata_dim,
-        num_heads=args.n_heads,
+        n_heads=args.n_heads,
+        dropout=0.0,
     )
     model = TelluricModel(cfg)
     total = parameter_table(model)
@@ -139,10 +176,11 @@ def run_shape_check(args: argparse.Namespace) -> None:
     x = torch.randn(batch, cfg.n_frames_per_series, cfg.num_wavelength_bins)
     s = torch.randn(batch, cfg.num_wavelength_bins)
     meta = torch.randn(batch, cfg.n_frames_per_series, cfg.metadata_dim)
+    hours = torch.rand(batch, cfg.n_frames_per_series)   # exposure times
 
     t0 = time.time()
     with torch.no_grad():
-        out = model(x, stellar=s, metadata=meta)
+        out = model(x, stellar=s, metadata=meta, time=hours)
     dt = time.time() - t0
 
     shapes = {
@@ -195,13 +233,13 @@ def run_shape_check(args: argparse.Namespace) -> None:
 
 
 def run_overfit(args: argparse.Namespace) -> None:
-    cfg = ModelConfig(
-        num_wavelength_bins=args.n_wavelength,
-        n_frames_per_series=args.n_frames,
-        num_queries=args.n_queries,
-        spectral_latent_dim=args.latent_dim,
+    cfg = _tiny_config(
+        n_wavelength=args.n_wavelength,
+        n_frames=args.n_frames,
+        n_queries=args.n_queries,
+        latent_dim=args.latent_dim,
         metadata_dim=args.metadata_dim,
-        num_heads=args.n_heads,
+        n_heads=args.n_heads,
         dropout=args.dropout,
     )
     model = TelluricModel(cfg)
@@ -215,6 +253,7 @@ def run_overfit(args: argparse.Namespace) -> None:
         args.nights, cfg.num_wavelength_bins, cfg.n_frames_per_series,
         seed=args.seed,
     )
+    hours = torch.rand(args.nights, cfg.n_frames_per_series)  # exposure times
     print(f"  train set: {x.shape[0]} nights x {x.shape[1]} exposures "
           f"x {x.shape[2]} samples")
     # Model-level demo only: regress param_pred (B, T, P) toward a fixed
@@ -229,7 +268,7 @@ def run_overfit(args: argparse.Namespace) -> None:
 
     def step() -> float:
         opt.zero_grad()
-        out = model(x, stellar=s, metadata=meta)
+        out = model(x, stellar=s, metadata=meta, time=hours)
         loss = F.mse_loss(out.params, param_input)
         loss.backward()
         opt.step()
@@ -253,8 +292,10 @@ def run_overfit(args: argparse.Namespace) -> None:
         raise SystemExit(2)
     # quick gradient sanity on a random batch
     xb = x[:2]
-    loss = F.mse_loss(model(xb, stellar=s[:2], metadata=meta[:2]).params,
-                      param_input[:2])
+    loss = F.mse_loss(
+        model(xb, stellar=s[:2], metadata=meta[:2], time=hours[:2]).params,
+        param_input[:2],
+    )
     loss.backward()
     missing = sum(1 for p in model.parameters() if p.requires_grad and p.grad is None)
     print(f"  gradient flow: {missing} parameter tensors without gradients "
