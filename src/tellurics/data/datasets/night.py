@@ -3,6 +3,14 @@
 Reads the night-major HDF5 built once by ``tests/testing_dataset_reshape.ipynb``
 (``transmission`` / ``labels`` / ``wavelength``) and turns each night into the
 inputs the :class:`~tellurics.models.night.NeuralTelluricPredictor` consumes.
+
+When a :class:`~tellurics.data.scaling.ParameterScaler` is supplied, the
+per-exposure metadata, the target parameters and ``time_hours`` are mapped onto
+``[0, 1]`` with the fixed physical bounds declared in
+:mod:`tellurics.configs.bounds`. That keeps ``MSE(param_pred, params)`` on a
+single scale and makes the bounded (``sigmoid``) head able to reach the
+targets; predictions come back to physical units via
+:meth:`ParameterScaler.inverse_params`.
 """
 
 from __future__ import annotations
@@ -13,23 +21,31 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
+from tellurics.configs.bounds import (
+    METADATA_COLUMNS,
+    PHYSICAL_COLUMNS,
+    TARGET_COLUMNS,
+    TIME_COLUMN,
+)
+from tellurics.data.scaling import ParameterScaler
 from tellurics.data.stellar import StellarPool
 
 # --------------------------------------------------------------------------- #
-# Column book-keeping (from the labels 'columns' attr of the night-major HDF5)
+# Column book-keeping
 # --------------------------------------------------------------------------- #
-TIME_COLUMN = "time_hours"
-METADATA_COLUMNS = ("pressure", "temperature", "humidity")
-
-# Full physical parameter set in canonical (file) order.
-PHYSICAL_COLUMNS = (
-    "time_hours", "pressure", "temperature", "humidity", "angle", "airmass",
-    "co2", "o3", "n2o", "co", "ch4", "o2", "no", "so2", "no2", "nh3", "hno3",
-)
-
-# Columns regressed by the estimator (everything except the time that is fed
-# to the TimeEncoder and the flat/series/frame indices).
-TARGET_COLUMNS = tuple(c for c in PHYSICAL_COLUMNS if c != TIME_COLUMN)
+# The schema and the physical bounds of every column live together in
+# tellurics.configs.bounds -- the source of truth shared with the config's
+# ``data.param_bounds`` -- so the bounds and the index layout can never
+# disagree. The names are re-exported here because this module publishes the
+# data contract (and did own them before).
+__all__ = [
+    "TelluricTimeseriesDataset",
+    "read_label_columns",
+    "TIME_COLUMN",
+    "METADATA_COLUMNS",
+    "PHYSICAL_COLUMNS",
+    "TARGET_COLUMNS",
+]
 
 
 def _decode_columns(columns) -> list[str]:
@@ -41,6 +57,14 @@ def _decode_columns(columns) -> list[str]:
         else:
             out.append(str(c))
     return out
+
+
+def read_label_columns(h5_path: str | Path) -> list[str]:
+    """Label column names stored in the file's ``labels.attrs['columns']``."""
+    import h5py
+
+    with h5py.File(Path(h5_path), "r") as f:
+        return _decode_columns(f["labels"].attrs.get("columns", []))
 
 
 class TelluricTimeseriesDataset(Dataset[dict[str, object]]):
@@ -60,7 +84,9 @@ class TelluricTimeseriesDataset(Dataset[dict[str, object]]):
         }
         night_id:   int      index in [0, n_nights)
         star_index: int      index into the stellar pool
-    """
+    With a ``scaler``, ``time`` / ``metadata`` / ``params`` are returned in
+    ``[0, 1]`` instead of physical units (each group independently, according
+    to which ``data.scale_*`` flags were enabled).    """
 
     metadata_columns = METADATA_COLUMNS
     time_column = TIME_COLUMN
@@ -72,12 +98,14 @@ class TelluricTimeseriesDataset(Dataset[dict[str, object]]):
         h5_path: str | Path,
         pool: StellarPool,
         star_assignment: np.ndarray,
+        scaler: ParameterScaler | None = None,
     ) -> None:
         super().__init__()
         self.h5_path = Path(h5_path)
         self.night_ids = list(night_ids)
         self.pool = pool
         self.star_assignment = np.asarray(star_assignment)
+        self.scaler = scaler
 
         # Resolve the column layout from the file's stored 'columns' attr.
         # Single source of truth, so the indices can never disagree with the
@@ -94,6 +122,28 @@ class TelluricTimeseriesDataset(Dataset[dict[str, object]]):
         self._time_idx = idx[self.time_column]
         self._metadata_idx = [idx[c] for c in self.metadata_columns]
         self._target_idx = [idx[c] for c in self.target_columns]
+        self._check_scaler_columns()
+
+    def _check_scaler_columns(self) -> None:
+        """Fail loudly if the scaler's column order disagrees with ours.
+
+        A mismatch would silently scale each parameter with another one's
+        bounds, so it is checked at construction time.
+        """
+        if self.scaler is None:
+            return
+        expected = {
+            "metadata": tuple(self.metadata_columns),
+            "params": tuple(self.target_columns),
+            "time": (self.time_column,),
+        }
+        for group_name, columns in expected.items():
+            group = getattr(self.scaler, group_name)
+            if group is not None and group.columns != columns:
+                raise ValueError(
+                    f"scaler.{group_name} is built for columns "
+                    f"{group.columns} but the dataset uses {columns}"
+                )
 
     def _open(self):
         import h5py
@@ -101,8 +151,7 @@ class TelluricTimeseriesDataset(Dataset[dict[str, object]]):
         return h5py.File(self.h5_path, "r")
 
     def _read_label_columns(self) -> list[str]:
-        with self._open() as f:
-            return _decode_columns(f["labels"].attrs.get("columns", []))
+        return read_label_columns(self.h5_path)
 
     def __len__(self) -> int:
         return len(self.night_ids)
@@ -122,6 +171,11 @@ class TelluricTimeseriesDataset(Dataset[dict[str, object]]):
         time = lab[:, self._time_idx]                                   # (T,)
         metadata = lab[:, self._metadata_idx]                           # (T,3)
         params = lab[:, self._target_idx]                               # (T,P)
+
+        if self.scaler is not None:
+            metadata = self.scaler.transform_metadata(metadata)
+            params = self.scaler.transform_params(params)
+            time = self.scaler.transform_time(time)
 
         return {
             "observed": torch.from_numpy(observed),

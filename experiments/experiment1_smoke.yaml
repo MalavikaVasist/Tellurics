@@ -30,6 +30,7 @@ model:
   time_enc_dim: 16                       # width of the per-exposure time code
   param_dim: 16                          # regressed telluric params per exposure P'
   param_decoder_hidden: null             # param-decoder MLP hidden (null -> auto)
+  param_activation: sigmoid              # bound the parameter head to (0,1); partner of data.scale_params
   num_heads: 4
   dropout: 0.1
   # shared strided 1D-CNN over the 73 exposures of X (one CNN, shared weights)
@@ -49,6 +50,11 @@ data:
   night_h5: data/telluric_timeseries/telluric_templates.h5   # built by tests/testing_dataset_reshape.ipynb
   phoenix_dir: data/phoenix/convolved    # stellar *.fits pool
   stellar_scale: true                    # normalize each stellar spectrum to unit mean flux
+  # [0, 1] label scaling; bounds are the code defaults (see experiment1.yaml for
+  # the full, annotated table and tellurics.configs.bounds for the authority).
+  scale_metadata: true                   # metadata -> [0,1]
+  scale_params: true                     # targets  -> [0,1] (pairs with param_activation: sigmoid)
+  scale_time: true                       # time_hours / 16 -> [0,1]
   max_nights: 10                        # smoke/debug subset: first 10 nights only
   train_fraction: 0.8                    # -> 80 train nights
   val_fraction: 0.1                      # -> 10 val nights (10 test nights)

@@ -11,6 +11,29 @@ class ModelArchitecture(str, Enum):
     NEURAL_TELLURIC_PREDICTOR = "neural_telluric_predictor"
 
 
+class ParamActivation(str, Enum):
+    """Activation of the parameter head (only the parameter prediction).
+
+    ``param_pred`` has shape ``(B, T, P)`` and holds ``P`` *heterogeneous*
+    physical parameters (pressure, humidity, airmass, molecular abundances,
+    ...). With min-max scaled targets (``data.scale_params``) every target lies
+    in ``[0, 1]``, so the head has to be bounded as well:
+
+    * ``NONE`` -- linear head, for raw (physical-unit) targets;
+    * ``SIGMOID`` -- element-wise ``sigmoid``, i.e. every parameter is
+      independently constrained to ``(0, 1)``. This is the correct partner of
+      ``data.scale_params: true``.
+
+    A ``softmax`` is deliberately not offered: normalizing over ``P`` would
+    force pressure + humidity + airmass + ... to sum to 1 within one exposure,
+    and normalizing over ``T`` would force each parameter's exposures to sum to
+    1 over the night. Neither constraint holds for these parameters.
+    """
+
+    NONE = "none"
+    SIGMOID = "sigmoid"
+
+
 class ModelConfig(BaseModel):
     """Configuration for the whole-night telluric parameter estimator.
 
@@ -87,4 +110,11 @@ class ModelConfig(BaseModel):
         gt=0,
         description="Hidden width of the per-exposure param-decoder MLP "
                     "(None -> auto).",
+    )
+    param_activation: ParamActivation = Field(
+        description="Activation applied to the parameter head output only "
+                    "(see ParamActivation). Use 'sigmoid' when "
+                    "data.scale_params maps the targets onto [0, 1]; the "
+                    "inverse transform back to physical units is "
+                    "tellurics.data.scaling.ParameterScaler.inverse_params.",
     )

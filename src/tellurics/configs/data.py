@@ -1,4 +1,4 @@
-"""Data configuration: input paths and the night-level split.
+"""Data configuration: input paths, label scaling and the night-level split.
 
 This is the ``data:`` section of an experiment manifest. It feeds
 :class:`~tellurics.data.datamodule.TelluricDataModule`, which additionally
@@ -10,6 +10,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from pydantic import BaseModel, Field, model_validator
+
+from tellurics.configs.bounds import ParameterBounds
 
 
 class DataConfig(BaseModel):
@@ -33,6 +35,38 @@ class DataConfig(BaseModel):
         default=True,
         description="Normalize each stellar spectrum to unit mean flux "
                     "before use (``StellarPool(scale=...)``).",
+    )
+
+    # -- [0, 1] label scaling --------------------------------------------- #
+    scale_metadata: bool = Field(
+        default=True,
+        description="Map the per-exposure metadata columns (pressure, "
+                    "temperature, humidity) onto [0, 1] with the "
+                    "``param_bounds`` envelope, before the MetadataEncoder.",
+    )
+    scale_params: bool = Field(
+        default=True,
+        description="Map the regression targets (``TARGET_COLUMNS``) onto "
+                    "[0, 1] with the ``param_bounds`` envelope, so the MSE is "
+                    "computed on one scale. Pair it with "
+                    "``model.param_activation: sigmoid`` (the head must be "
+                    "bounded too) and invert predictions with "
+                    "ParameterScaler.inverse_params.",
+    )
+    scale_time: bool = Field(
+        default=True,
+        description="Map ``time_hours`` onto [0, 1] with its ``param_bounds`` "
+                    "envelope (default [0, 16], i.e. time_hours / 16).",
+    )
+    param_bounds: ParameterBounds = Field(
+        default_factory=ParameterBounds,
+        description="Authoritative physical [min, max] bounds of every "
+                    "parameter. They drive the [0, 1] scaling, the validation "
+                    "of the stored labels, and the inverse transform that "
+                    "returns predictions to physical units. Declaring them "
+                    "(instead of reading statistics off the data) keeps the "
+                    "mapping deterministic and independent of the "
+                    "train/val/test split.",
     )
 
     # -- DataLoader ------------------------------------------------------ #

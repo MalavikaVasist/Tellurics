@@ -45,7 +45,7 @@ Architecture (shape-annotated)
         | TemporalDecoder (cross-attn, 73 learned exposure queries)
         v
     H_T (B, 73, 64)
-        | ParamDecoder (shared MLP, applied per exposure)
+        | ParamDecoder (shared MLP, optional sigmoid head)
         v
     param_pred (B, 73, 20)      loss = MSE(param_input, param_pred)
 
@@ -130,6 +130,10 @@ class NeuralTelluricPredictor(nn.Module):
 
     Output (ModelOutput):
         params (B, T, P): predicted per-exposure telluric parameters param_pred.
+            When the head is bounded (``param_activation=sigmoid``, the partner
+            of ``data.scale_params``) these are *scaled* values in ``[0, 1]``;
+            map them back to physical units with
+            :meth:`tellurics.data.scaling.ParameterScaler.inverse_params`.
         latent (B, Q*d): flattened Perceiver night summary h_X.
         attention_weights (B, Q, T): query -> exposure attention (mean over h).
         intermediate_features: dictionary with every intermediate tensor.
@@ -204,9 +208,11 @@ class NeuralTelluricPredictor(nn.Module):
             t, d, heads, config.dropout
         )
         # 9. per-exposure parameter decoder: d-dim code -> P parameters
+        #    (``param_activation`` bounds only this head, e.g. sigmoid -> [0, 1]
+        #    for targets that ``data.scale_params`` put on [0, 1]).
         self.param_decoder = ParamDecoder(
             d, config.param_dim, config.param_decoder_hidden,
-            dropout=config.dropout,
+            dropout=config.dropout, activation=config.param_activation,
         )
 
         self._intermediate: dict[str, torch.Tensor] = {}
@@ -276,7 +282,7 @@ class NeuralTelluricPredictor(nn.Module):
         z = self.spectral_encoder(observed)          # (B, T, d)
         assert z.shape == (batch, self.t, self.d), z.shape
 
-        # 1.5 per-exposure metadata -> C-dim code (zeros when absent/disabled)
+        # 1.5 per-exposure metadata -> C-dim code 
         if metadata is not None and metadata.dim() == 3:
             if metadata.shape != (batch, self.t, self.metadata_dim):
                                 raise ValueError(

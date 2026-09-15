@@ -70,6 +70,9 @@ def _tiny_config(
         metadata_enc_hidden=None,
         time_enc_dim=16,
         param_decoder_hidden=None,
+        # This demo regresses toward raw, unbounded random targets, so the head
+        # stays linear ("sigmoid" is the partner of data.scale_params=true).
+        param_activation="none",
     )
 
 

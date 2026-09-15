@@ -6,7 +6,8 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from tellurics.configs.model import ModelConfig
+from tellurics.configs.model import ModelConfig, ParamActivation
+from tellurics.models.decoders import ParamDecoder
 from tellurics.models.night import NeuralTelluricPredictor
 from tellurics.models.output import ModelOutput
 from tellurics.utils.registry import ModelRegistry
@@ -19,6 +20,7 @@ def _config(
     d: int = 32,
     metadata_dim: int = 3,
     heads: int = 4,
+    param_activation: str = "sigmoid",
 ) -> ModelConfig:
     """Small dims so the tests stay fast on CPU (a repo-wide ModelConfig).
 
@@ -47,6 +49,7 @@ def _config(
         metadata_enc_hidden=None,
         time_enc_dim=16,
         param_decoder_hidden=None,
+        param_activation=param_activation,
     )
 
 
@@ -254,7 +257,9 @@ class TestOverfitTiny:
         x = torch.stack(xs)               # (B, T, N)
         s = torch.stack(ss)               # (B, N)
         metadata = torch.stack(metas)     # (B, T, P) per-exposure metadata
-        param_input = torch.randn(nights, cfg.n_frames_per_series, cfg.param_dim)
+        # Targets live in [0, 1]: that is the space the sigmoid head (and
+        # ``data.scale_params``) operate in.
+        param_input = torch.rand(nights, cfg.n_frames_per_series, cfg.param_dim)
         hours = torch.rand(nights, cfg.n_frames_per_series)
 
         losses = []
@@ -267,6 +272,39 @@ class TestOverfitTiny:
             losses.append(loss.item())
 
         assert losses[-1] < losses[0], f"loss did not decrease: {losses}"
+
+
+class TestParamActivation:
+    """The parameter head is the only bounded output of the model."""
+
+    def test_sigmoid_head_stays_within_the_unit_interval(self) -> None:
+        """Even with saturating inputs, the predicted params stay in [0, 1]."""
+        cfg = _config(param_activation="sigmoid")
+        model = NeuralTelluricPredictor(cfg).eval()
+        with torch.no_grad():
+            out = model(
+                torch.randn(2, 12, 1024) * 25.0,
+                stellar=torch.randn(2, 1024),
+                metadata=torch.randn(2, 12, cfg.metadata_dim) * 25.0,
+                time=torch.rand(2, 12) * 25.0,
+            )
+        assert float(out.params.min()) >= 0.0
+        assert float(out.params.max()) <= 1.0
+
+    def test_head_matches_the_documented_transform(self) -> None:
+        """sigmoid(raw) for the sigmoid head, raw for the linear one."""
+        code = torch.randn(3, 8)
+        sigmoid_head = ParamDecoder(8, 4, activation="sigmoid")
+        linear_head = ParamDecoder(8, 4, activation="none")
+        assert torch.allclose(
+            sigmoid_head(code), torch.sigmoid(sigmoid_head.net(code))
+        )
+        assert torch.allclose(linear_head(code), linear_head.net(code))
+        assert bool(((sigmoid_head(code) > 0) & (sigmoid_head(code) < 1)).all())
+
+    def test_default_head_is_linear(self) -> None:
+        """Backward compatibility: unchanged unless an activation is asked for."""
+        assert ParamDecoder(8, 4).activation is ParamActivation.NONE
 
 
 def _repo_model_config(n_wave: int = 1024, t: int = 12) -> "ModelConfig":

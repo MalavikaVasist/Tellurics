@@ -19,6 +19,14 @@ Each batch is a dict::
 The estimator is run with ``observed``, ``stellar``, ``theta["metadata"]`` and
 ``theta["time"]``; the loss is the MSE between its predicted ``param_pred`` and
 the ground-truth ``theta["params"]`` (the shared training/validation loop).
+
+Both sides of that MSE live on the same scale. When ``data.scale_params`` is
+enabled the DataModule has already mapped ``theta["params"]`` onto ``[0, 1]``
+using the declared ``data.param_bounds``, and the model's parameter head is
+bounded to match (``model.param_activation: sigmoid``). ``training_loss``,
+``validation_loss`` and the ``*_rmse`` metrics are therefore in *normalized*
+units; call ``ParameterScaler.inverse_params`` (or multiply by the per-column
+``max - min``) to express a prediction in physical units again.
 """
 
 from __future__ import annotations

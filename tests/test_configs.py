@@ -2,7 +2,13 @@
 
 import pytest
 
-from tellurics.configs.model import ModelArchitecture, ModelConfig
+from tellurics.configs.bounds import (
+    PHYSICAL_COLUMNS,
+    TARGET_COLUMNS,
+    TIME_COLUMN,
+)
+from tellurics.configs.data import DataConfig
+from tellurics.configs.model import ModelArchitecture, ModelConfig, ParamActivation
 from tellurics.configs.training import TrainingConfig
 
 # Every ModelConfig field, with the problem dims kept tiny.
@@ -29,6 +35,7 @@ MODEL_KWARGS = {
     "metadata_enc_hidden": None,
     "time_enc_dim": 16,
     "param_decoder_hidden": None,
+    "param_activation": "sigmoid",
 }
 
 
@@ -62,6 +69,57 @@ class TestModelConfig:
         assert config.metadata_dim == 3   # pressure, temperature, humidity
         assert config.param_dim == 16     # TARGET_COLUMNS
         assert config.num_wavelength_bins == 1024
+
+    def test_param_activation_is_parsed(self) -> None:
+        assert ModelConfig(**MODEL_KWARGS).param_activation is ParamActivation.SIGMOID
+        assert (
+            ModelConfig(**{**MODEL_KWARGS, "param_activation": "none"})
+            .param_activation
+            is ParamActivation.NONE
+        )
+
+    def test_rejects_unknown_activation(self) -> None:
+        with pytest.raises(ValueError):
+            ModelConfig(**{**MODEL_KWARGS, "param_activation": "softmax"})
+
+
+class TestDataConfigScaling:
+    """The [0, 1] scaling switches and their authoritative bounds."""
+
+    def test_scaling_flags_default_to_on(self) -> None:
+        config = DataConfig()
+        assert config.scale_metadata is True
+        assert config.scale_params is True
+        assert config.scale_time is True
+
+    def test_flags_are_independent(self) -> None:
+        config = DataConfig(scale_metadata=False, scale_params=False, scale_time=False)
+        assert not (config.scale_metadata or config.scale_params or config.scale_time)
+
+    def test_bounds_cover_the_whole_schema(self) -> None:
+        bounds = DataConfig().param_bounds.to_mapping()
+        assert tuple(bounds) == PHYSICAL_COLUMNS
+        assert set(TARGET_COLUMNS) <= set(bounds)
+        assert bounds[TIME_COLUMN] == (0.0, 16.0)
+
+    def test_bounds_can_be_overridden(self) -> None:
+        config = DataConfig(param_bounds={"pressure": (700.0, 780.0)})
+        assert config.param_bounds.pressure == (700.0, 780.0)
+        # Untouched columns keep their declared default.
+        assert config.param_bounds.airmass == (1.0, 2.0)
+
+    def test_degenerate_bounds_are_allowed(self) -> None:
+        """A constant parameter (min == max) stays legal; see the scaler."""
+        config = DataConfig(param_bounds={"co": (0.14, 0.14)})
+        assert config.param_bounds.co == (0.14, 0.14)
+
+    def test_rejects_inverted_bounds(self) -> None:
+        with pytest.raises(ValueError):
+            DataConfig(param_bounds={"pressure": (900.0, 600.0)})
+
+    def test_rejects_non_finite_bounds(self) -> None:
+        with pytest.raises(ValueError):
+            DataConfig(param_bounds={"humidity": (0.0, float("nan"))})
 
 
 class TestTrainingConfig:

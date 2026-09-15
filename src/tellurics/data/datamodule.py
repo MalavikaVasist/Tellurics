@@ -11,9 +11,17 @@ Each night is multiplied by a single, fixed, seeded stellar spectrum:
 ``observed = transmission * S``. The night -> star mapping (with its split) is
 written to ``<run_dir>/stellar_assignment.csv`` for auditing.
 
-``setup()`` is idempotent: the first call loads the metadata, makes the splits,
-assigns the stars and builds the datasets; later calls (e.g. a subsequent
-``stage='test'``) return immediately.
+Optionally (``data.scale_metadata`` / ``data.scale_params`` / ``data.scale_time``)
+the per-exposure metadata, the target parameters and ``time_hours`` are mapped
+onto ``[0, 1]`` with the physical bounds declared in the manifest
+(``data.param_bounds``, see :mod:`tellurics.configs.bounds`). The bounds are
+config, not statistics, so the mapping is identical for train/val/test and for
+any ``max_nights`` subset; the same bounds invert predictions back to physical
+units (:meth:`tellurics.data.scaling.ParameterScaler.inverse_params`).
+
+``setup()`` is idempotent: the first call loads the metadata, builds the
+scaler, makes the splits, assigns the stars and builds the datasets; later
+calls (e.g. a subsequent ``stage='test'``) return immediately.
 """
 
 from __future__ import annotations
@@ -25,7 +33,14 @@ import pytorch_lightning as pl
 from torch.utils.data import DataLoader, Dataset
 
 from tellurics.configs.data import DataConfig
-from tellurics.data.datasets.night import TelluricTimeseriesDataset
+from tellurics.data.datasets.night import (
+    METADATA_COLUMNS,
+    TARGET_COLUMNS,
+    TIME_COLUMN,
+    TelluricTimeseriesDataset,
+    read_label_columns,
+)
+from tellurics.data.scaling import ParameterScaler
 from tellurics.data.splits import split_night_indices
 from tellurics.data.stellar import (
     StellarPool,
@@ -36,6 +51,32 @@ from tellurics.data.wavegrid import Wavegrid
 from tellurics.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+# Nights read at a time when checking label values against the declared bounds.
+_BOUNDS_CHECK_CHUNK = 256
+
+
+def build_scaler(config: DataConfig) -> ParameterScaler:
+    """Build the ``[0, 1]`` label scaler described by a ``data:`` section.
+
+    A pure function of ``data.param_bounds`` and the three ``data.scale_*``
+    flags: no statistic is read off the data and no split is involved, so the
+    scaler is identical for train/val/test and can be rebuilt from a run's
+    ``config.yaml`` alone -- which is how a prediction is mapped back to
+    physical units at inference time::
+
+        scaler = build_scaler(load_config("runs/<run>/config.yaml").data)
+        physical = scaler.inverse_params(pred.params)
+    """
+    return ParameterScaler.from_bounds(
+        config.param_bounds.to_mapping(),
+        metadata_columns=METADATA_COLUMNS,
+        target_columns=TARGET_COLUMNS,
+        time_column=TIME_COLUMN,
+        scale_metadata=config.scale_metadata,
+        scale_params=config.scale_params,
+        scale_time=config.scale_time,
+    )
 
 
 class TelluricDataModule(pl.LightningDataModule):
@@ -70,6 +111,7 @@ class TelluricDataModule(pl.LightningDataModule):
     wavegrid: Wavegrid | None = None
     stellar_pool: StellarPool | None = None
     stellar_assignment: np.ndarray | None = None      # (n_nights,) star indices
+    scaler: ParameterScaler | None = None             # [0,1] label scaling
     n_nights: int = 0
     n_frames: int = 0
     train_ids: list[int] = []
@@ -86,6 +128,7 @@ class TelluricDataModule(pl.LightningDataModule):
             return
 
         self._load_metadata()  # shapes + wavelength grid
+        self._make_scaler()    # [0,1] scaling from the declared bounds
         self._make_splits()    # night-level train/val/test
         self._assign_stars()   # fixed stellar spectrum per night + audit CSV
         self._make_datasets()  # one dataset per split
@@ -153,12 +196,99 @@ class TelluricDataModule(pl.LightningDataModule):
             f"test {len(self.test_ids)}; stellar audit -> {audit_csv}"
         )
 
+    def _make_scaler(self) -> None:
+        """Build the ``[0, 1]`` scaler from the manifest's declared bounds.
+
+        The scaler is a pure function of ``data.param_bounds`` and the three
+        ``data.scale_*`` flags, so it is identical for every split and can be
+        rebuilt from a run's ``config.yaml`` alone.
+        """
+        self.scaler = build_scaler(self.config)
+        if not any(
+            (self.scaler.scale_metadata, self.scaler.scale_params,
+             self.scaler.scale_time)
+        ):
+            logger.info(
+                "data.scale_metadata/scale_params/scale_time are all false: "
+                "labels are fed to the model in physical units."
+            )
+            return
+
+        self._check_labels_within_bounds()
+
+    def _check_labels_within_bounds(self) -> None:
+        """Validate the stored labels against the declared bounds.
+
+        The bounds are a declaration (the generator's physical envelope), not a
+        statistic of the file, so values can legitimately fall outside them --
+        the generator perturbs each nightly abundance by up to +/-2 %. Those are
+        clipped to ``[0, 1]`` by the scaler, so they are counted per column and
+        reported rather than silently distorted.
+        """
+        groups = {
+            "metadata": self.scaler.metadata,
+            "params": self.scaler.params,
+            "time": self.scaler.time,
+        }
+        columns = read_label_columns(self.config.night_h5)
+        index = {c: i for i, c in enumerate(columns)}
+        selected = {
+            name: [index[c] for c in group.columns]
+            for name, group in groups.items()
+            if group is not None
+        }
+        if not selected:
+            return
+
+        # Per column, over every exposure row of the file (the bound is global,
+        # so the whole file is inspected, not just the split's nights).
+        outside = {name: [] for name in selected}
+        totals = {name: 0 for name in selected}
+
+        import h5py
+
+        with h5py.File(self.config.night_h5, "r") as f:
+            labels = f["labels"]
+            for start in range(0, labels.shape[0], _BOUNDS_CHECK_CHUNK):
+                block = np.asarray(
+                    labels[start:start + _BOUNDS_CHECK_CHUNK], np.float64
+                )
+                for name, cols in selected.items():
+                    values = block[:, :, cols].reshape(-1, len(cols))
+                    outside[name].append(
+                        groups[name].out_of_bounds_per_column(values)
+                    )
+                    totals[name] += values.shape[0]
+
+        for name, chunks in outside.items():
+            counts = np.sum(chunks, axis=0)
+            total = totals[name]
+            bad = int(counts.sum())
+            if not bad:
+                logger.info(
+                    f"all {total} stored {name} values are within "
+                    "data.param_bounds"
+                )
+                continue
+            details = ", ".join(
+                f"{c} {int(n)}/{total} ({100.0 * n / total:.3f} %) "
+                f"{groups[name].summary()[c]}"
+                for c, n in zip(groups[name].columns, counts)
+                if n
+            )
+            logger.warning(
+                f"{bad}/{total} stored {name} values "
+                f"({100.0 * bad / total:.3f} %) lie outside data.param_bounds "
+                f"and are clipped to [0, 1] -> {details}"
+            )
+
     def _make_datasets(self) -> None:
         """Wrap each split in a :class:`TelluricTimeseriesDataset`."""
         common = dict(
             h5_path=self.config.night_h5,
             pool=self.stellar_pool,
             star_assignment=self.stellar_assignment,
+            scaler=self.scaler,
         )
         self.train_ds = TelluricTimeseriesDataset(night_ids=self.train_ids, **common)
         self.val_ds = TelluricTimeseriesDataset(night_ids=self.val_ids, **common)

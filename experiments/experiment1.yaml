@@ -49,7 +49,8 @@ model:
   time_enc_dim: 16                       # width of the per-exposure time code
   param_dim: 16                          # regressed telluric params per exposure P'
   param_decoder_hidden: null             # param-decoder MLP hidden (null -> auto)
-  num_heads: 4
+  param_activation: sigmoid              # bound the parameter head to (0,1); partner of data.scale_params
+  num_heads: 4                           # number of attention heads in the temporal Perceiver
   dropout: 0.1
   # shared strided 1D-CNN over the 73 exposures of X (one CNN, shared weights)
   x_encoder_channels: [16, 32, 64, 96, 128]
@@ -69,6 +70,38 @@ data:
   night_h5: data/telluric_timeseries/telluric_templates.h5   # built by tests/testing_dataset_reshape.ipynb
   phoenix_dir: data/phoenix/convolved    # stellar *.fits pool
   stellar_scale: true                    # normalize each stellar spectrum to unit mean flux
+
+  # --- [0, 1] label scaling (tellurics.configs.bounds) ------------------- #
+  # The bounds below are the AUTHORITATIVE physical/configured ranges. They are
+  # used to (a) normalize metadata / targets / time_hours, (b) validate the
+  # stored labels, (c) invert predictions back to physical units. They come from
+  # the ai-tfm-tellurics generator configs (paranal_generator.toml,
+  # telfit_conditions_production_variable_molecules.toml), NOT from statistics
+  # of this file, so the mapping is identical for train/val/test and for any
+  # max_nights subset.
+  # x_scaled = (x - min) / (max - min);  min == max means "constant parameter".
+  scale_metadata: true                   # metadata  (pressure, temperature, humidity) -> [0,1]
+  scale_params: true                     # targets   (TARGET_COLUMNS) -> [0,1]; needs param_activation: sigmoid
+  scale_time: true                       # time_hours -> [0,1]  (time_hours / 16)
+  param_bounds:
+    time_hours: [0.0, 6.0]              # h    
+    pressure: [600.0, 850.0]             # hPa
+    temperature: [233.15, 318.15]        # K    (-40 .. +45 degC)
+    humidity: [0.0, 100.0]               # %
+    angle: [0.0, 90.0]                   # deg  (zenith angle)
+    airmass: [1.0, 2.0]                  # sec(z), altitude >= 30 deg
+    co2: [420.0, 435.0]                  # ppmv
+    o3: [0.018, 0.0429]                  # ppmv
+    n2o: [0.335, 0.345]                  # ppmv
+    co: [0.088, 0.169]                   # ppmv
+    ch4: [1.90, 1.98]                    # ppmv
+    o2: [205800.0, 214200.0]             # ppmv
+    no: [1.0e-19, 1.2e-5]                # ppmv (log-uniform in the generator)
+    so2: [9.8e-5, 1.02e-4]               # ppmv
+    no2: [2.57e-5, 1.0e-4]               # ppmv
+    nh3: [9.8e-5, 1.02e-4]               # ppmv
+    hno3: [1.74e-5, 5.6e-4]              # ppmv
+
   # Night-level split (test = 1 - train - val).
   train_fraction: 0.8
   val_fraction: 0.1

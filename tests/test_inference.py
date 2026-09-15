@@ -32,6 +32,7 @@ def _tiny_config() -> ModelConfig:
         metadata_enc_hidden=None,
         time_enc_dim=16,
         param_decoder_hidden=None,
+        param_activation="sigmoid",
     )
 
 
