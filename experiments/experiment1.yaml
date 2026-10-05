@@ -70,7 +70,7 @@ data:
   night_h5: data/telluric_timeseries/telluric_templates.h5   # built by tests/testing_dataset_reshape.ipynb
   phoenix_dir: data/phoenix/convolved    # stellar *.fits pool
   stellar_scale: true                    # normalize each stellar spectrum to unit mean flux
-
+  max_nights: 100                        # subset: first 100 nights only (not a random sample)
   # --- [0, 1] label scaling (tellurics.configs.bounds) ------------------- #
   # The bounds below are the AUTHORITATIVE physical/configured ranges. They are
   # used to (a) normalize metadata / targets / time_hours, (b) validate the

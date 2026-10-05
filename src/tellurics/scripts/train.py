@@ -59,7 +59,7 @@ from tellurics.configs import (
     WandbConfig,
     load_config,
 )
-from tellurics.data.datamodule import TelluricDataModule
+from tellurics.data.datamodule import TelluricDataModule, build_scaler
 from tellurics.training.module import TelluricTrainingModule
 from tellurics.utils.logging import get_logger
 
@@ -141,9 +141,16 @@ def build_datamodule(
 
 
 def build_model(
-    model_config: ModelConfig, training_config: TrainingConfig
+    model_config: ModelConfig,
+    training_config: TrainingConfig,
+    data_config: DataConfig | None = None,
 ) -> TelluricTrainingModule:
-    """Build the LightningModule (registry-resolved estimator) to train."""
+    """Build the LightningModule (registry-resolved estimator) to train.
+
+    ``data_config`` is used only to build the ``[0, 1]`` label scaler that
+    :meth:`TelluricTrainingModule.predict_physical` needs to report predictions
+    in physical units; training itself never uses it.
+    """
     logger.info(
         f"Training {model_config.architecture.value} | "
         f"N={model_config.num_wavelength_bins}, "
@@ -151,7 +158,11 @@ def build_model(
         f"metadata_dim={model_config.metadata_dim}, "
         f"param_dim={model_config.param_dim}"
     )
-    return TelluricTrainingModule(model_config, training_config)
+    return TelluricTrainingModule(
+        model_config,
+        training_config,
+        scaler=build_scaler(data_config) if data_config is not None else None,
+    )
 
 
 def build_trainer(
@@ -233,7 +244,7 @@ def main() -> None:
 
     run_dir = prepare_run_dir(config)
     datamodule = build_datamodule(config.data, config.training, run_dir)
-    model = build_model(config.model, config.training)
+    model = build_model(config.model, config.training, data_config=config.data)
 
     train(
         model=model,

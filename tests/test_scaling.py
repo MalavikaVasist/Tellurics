@@ -428,20 +428,27 @@ def _tiny_model_config() -> ModelConfig:
     )
 
 
+def _training_module(scaler: ParameterScaler | None = None) -> TelluricTrainingModule:
+    """Tiny LightningModule, optionally wired to a scaler."""
+    return TelluricTrainingModule(
+        _tiny_model_config(),
+        TrainingConfig(max_epochs=1, precision="32"),
+        scaler=scaler,
+    )
+
+
+def _batch(night_file) -> dict:
+    """One collated batch (2 nights) of the synthetic file."""
+    loader = DataLoader(_dataset(night_file, [0, 1], DataConfig()), batch_size=2)
+    return next(iter(loader))
+
+
 class TestTrainingPipelineWithScaledTargets:
     """``MSE(param_pred, params)`` with both sides on ``[0, 1]`` still trains."""
 
-    def _module(self) -> TelluricTrainingModule:
-        return TelluricTrainingModule(
-            _tiny_model_config(),
-            TrainingConfig(max_epochs=1, precision="32"),
-        )
-
     def test_loss_is_finite_and_both_sides_are_bounded(self, night_file) -> None:
-        module = self._module()
-        loader = DataLoader(_dataset(night_file, [0, 1], DataConfig()), batch_size=2)
-        batch = next(iter(loader))
-
+        module = _training_module()
+        batch = _batch(night_file)
         pred = module._run_estimator(batch).params
         target = batch["theta"]["params"]
 
@@ -462,8 +469,88 @@ class TestTrainingPipelineWithScaledTargets:
             devices=1,
         )
         trainer.fit(
-            self._module(),
+            _training_module(),
             train_dataloaders=loader,
             val_dataloaders=loader,
         )
         assert trainer.state.status == "finished"
+
+
+class TestPredictPhysical:
+    """``predict_physical`` is the inverse of the dataset's forward scaling."""
+
+    def test_predict_step_stays_normalized(self, night_file) -> None:
+        module = _training_module(build_scaler(DataConfig())).eval()
+        with torch.no_grad():
+            params = module.predict_step(_batch(night_file), 0).params
+        assert bool(((params >= 0.0) & (params <= 1.0)).all())
+
+    def test_predict_physical_inverts_the_scaling(self, night_file) -> None:
+        scaler = build_scaler(DataConfig())
+        module = _training_module(scaler).eval()
+        batch = _batch(night_file)
+
+        with torch.no_grad():
+            normalized = module.predict_step(batch, 0)
+            physical = module.predict_physical(batch)
+
+        assert torch.allclose(
+            physical.params, scaler.inverse_params_torch(normalized.params)
+        )
+
+    def test_predictions_land_inside_the_declared_physical_range(
+        self, night_file
+    ) -> None:
+        """A bounded head + the inverse bound every physical prediction."""
+        scaler = build_scaler(DataConfig())
+        with torch.no_grad():
+            params = _training_module(scaler).eval().predict_physical(
+                _batch(night_file)
+            ).params
+
+        low = torch.as_tensor(scaler.params.minimum, dtype=params.dtype)
+        high = torch.as_tensor(scaler.params.maximum, dtype=params.dtype)
+        assert bool((params >= low).all())
+        assert bool((params <= high).all())
+        # e.g. pressure comes back in hPa, not as a 0-1 fraction.
+        pressure = TARGET_COLUMNS.index("pressure")
+        assert float(params[..., pressure].min()) >= 600.0
+        assert float(params[..., pressure].max()) <= 850.0
+
+    def test_non_parameter_fields_pass_through(self, night_file) -> None:
+        module = _training_module(build_scaler(DataConfig())).eval()
+        batch = _batch(night_file)
+        with torch.no_grad():
+            normalized = module.predict_step(batch, 0)
+            physical = module.to_physical(normalized)
+
+        assert torch.equal(physical.latent, normalized.latent)
+        assert torch.equal(physical.attention_weights, normalized.attention_weights)
+        assert physical.intermediate_features is normalized.intermediate_features
+
+    def test_identity_without_a_scaler(self, night_file) -> None:
+        module = _training_module(None).eval()
+        batch = _batch(night_file)
+        with torch.no_grad():
+            assert torch.equal(
+                module.predict_physical(batch).params,
+                module.predict_step(batch, 0).params,
+            )
+
+    def test_identity_when_scale_params_is_false(self, night_file) -> None:
+        scaler = build_scaler(DataConfig(scale_params=False))
+        module = _training_module(scaler).eval()
+        batch = _batch(night_file)
+        assert not scaler.scale_params
+        with torch.no_grad():
+            assert torch.equal(
+                module.predict_physical(batch).params,
+                module.predict_step(batch, 0).params,
+            )
+
+    def test_scaler_is_not_written_into_the_hparams(self) -> None:
+        """Checkpoints stay scaler-free: it is rebuilt from config.yaml."""
+        scaler = build_scaler(DataConfig())
+        module = _training_module(scaler)
+        assert module.scaler is scaler
+        assert "scaler" not in module.hparams

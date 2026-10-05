@@ -24,12 +24,15 @@ Both sides of that MSE live on the same scale. When ``data.scale_params`` is
 enabled the DataModule has already mapped ``theta["params"]`` onto ``[0, 1]``
 using the declared ``data.param_bounds``, and the model's parameter head is
 bounded to match (``model.param_activation: sigmoid``). ``training_loss``,
-``validation_loss`` and the ``*_rmse`` metrics are therefore in *normalized*
-units; call ``ParameterScaler.inverse_params`` (or multiply by the per-column
-``max - min``) to express a prediction in physical units again.
+``validation_loss``, the ``*_rmse`` metrics, ``predict_step`` and
+``ModelOutput.params`` are therefore all in *normalized* units; call
+:meth:`TelluricTrainingModule.predict_physical` (or
+``ParameterScaler.inverse_params``) to get a prediction back in physical units.
 """
 
 from __future__ import annotations
+
+from dataclasses import replace
 
 import torch
 import torch.nn.functional as F
@@ -37,6 +40,7 @@ import pytorch_lightning as pl
 
 from tellurics.configs.model import ModelConfig
 from tellurics.configs.training import OptimizerType, SchedulerType, TrainingConfig
+from tellurics.data.scaling import ParameterScaler
 from tellurics.models.output import ModelOutput
 from tellurics.utils.logging import get_logger
 from tellurics.utils.registry import ModelRegistry
@@ -61,6 +65,7 @@ class TelluricTrainingModule(pl.LightningModule):
         self,
         model_config: ModelConfig,
         training_config: TrainingConfig,
+        scaler: ParameterScaler | None = None,
     ) -> None:
         """Initialize.
 
@@ -68,12 +73,22 @@ class TelluricTrainingModule(pl.LightningModule):
             model_config: Model architecture configuration (architecture must be
                 ``neural_telluric_predictor``).
             training_config: Training hyperparameter configuration.
+            scaler: The ``[0, 1]`` label scaler (``build_scaler(config.data)``).
+                It is used *only* by :meth:`predict_physical` to map predictions
+                back to physical units; training, validation and
+                :meth:`predict_step` all stay in the normalized space. Optional:
+                without it every prediction stays normalized.
         """
         super().__init__()
-        self.save_hyperparameters()
+        # ``scaler`` is deliberately kept out of the hparams payload: it is a
+        # pure function of ``data.param_bounds`` and the ``data.scale_*`` flags,
+        # so it is rebuilt from the run's config.yaml rather than pickled into
+        # every checkpoint.
+        self.save_hyperparameters(ignore=["scaler"])
 
         self.model_config = model_config
         self.training_config = training_config
+        self.scaler = scaler
 
         model_cls = ModelRegistry.get(model_config.architecture.value)
         self.model = model_cls(model_config)
@@ -212,8 +227,52 @@ class TelluricTrainingModule(pl.LightningModule):
 
         Used by ``Trainer.predict(...)`` to collect one :class:`ModelOutput`
         per batch (notably ``.params``) over a dataset without training.
+
+        The parameters are in the **normalized** space the model was trained in
+        (``[0, 1]`` when ``data.scale_params`` is enabled), matching what
+        ``training_step`` / ``validation_step`` see. Use
+        :meth:`predict_physical` for physical units.
         """
         return self._run_estimator(batch)
+
+    # ------------------------------------------------------------------ #
+    def predict_physical(
+        self, batch: dict[str, torch.Tensor]
+    ) -> ModelOutput:
+        """Predict a batch and return the parameters in **physical units**.
+
+        :meth:`predict_step` keeps the model's own (normalized) contract: when
+        ``data.scale_params`` is enabled the targets are mapped onto ``[0, 1]``
+        by :class:`~tellurics.data.scaling.ParameterScaler`, the parameter head
+        is bounded by ``sigmoid``, and the loss compares two ``[0, 1]``
+        tensors. This helper applies the inverse transform so downstream code
+        gets hPa / K / % / deg / ppmv back::
+
+            output = module.predict_physical(batch)
+            output.params            # (B, T, P) in physical units
+
+        ``latent``, ``attention_weights`` and ``intermediate_features`` are
+        passed through untouched. The call is the exact inverse of the dataset's
+        forward transform, and a no-op (identical to :meth:`predict_step`) when
+        the module was built without a ``scaler`` or ``data.scale_params`` is
+        ``False``.
+        """
+        return self.to_physical(self._run_estimator(batch))
+
+    def to_physical(self, output: ModelOutput) -> ModelOutput:
+        """Inverse-scale the parameters of an already computed ``ModelOutput``.
+
+        Useful for outputs collected from ``Trainer.predict(...)`` without a
+        second forward pass. Returns ``output`` unchanged when there is nothing
+        to invert.
+        """
+        if self.scaler is None or output.params is None:
+            return output
+        if not self.scaler.scale_params:
+            return output
+        return replace(
+            output, params=self.scaler.inverse_params_torch(output.params)
+        )
 
     # ------------------------------------------------------------------ #
     def configure_optimizers(self) -> dict:
