@@ -7,7 +7,6 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, Field, model_validator
 
-from tellurics.configs.bounds import ParameterBounds
 from tellurics.configs.data import DataConfig
 from tellurics.configs.model import ModelConfig, ParamActivation
 from tellurics.configs.training import TrainingConfig

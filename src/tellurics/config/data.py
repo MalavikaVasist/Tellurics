@@ -59,9 +59,11 @@ class DataConfig(BaseModel):
                     "envelope (default [0, 16], i.e. time_hours / 16).",
     )
     param_bounds: ParameterBounds = Field(
-        default_factory=ParameterBounds,
         description="Authoritative physical [min, max] bounds of every "
-                    "parameter. They drive the [0, 1] scaling, the validation "
+                    "parameter, declared explicitly here (there is no code "
+                    "default -- the schema/column order comes from "
+                    "tellurics.configs.bounds.ParameterBounds, the values from "
+                    "this table). They drive the [0, 1] scaling, the validation "
                     "of the stored labels, and the inverse transform that "
                     "returns predictions to physical units. Declaring them "
                     "(instead of reading statistics off the data) keeps the "

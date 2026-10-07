@@ -1,44 +1,56 @@
-"""Train the whole-night telluric estimator on the night-major telluric file.
+"""Train the whole-night telluric estimator on night-major data.
 
 Pipeline
 --------
-1. The night-major ``data/telluric_timeseries/telluric_templates.h5``
-   (4500 nights x 73 frames x 51557 samples + labels) is produced once, out of
-   band, by the ``tests/testing_dataset_reshape.ipynb`` notebook, which
-   reshapes the flat ``data/telluric_templates.h5``.
-2. :class:`TelluricDataModule` loads whole nights, multiplies each night by a
-   fixed (seeded) Phoenix stellar spectrum sampled from ``data/phoenix/convolved``,
-   and returns ``observed (B,T,N)`` + ``stellar (B,N)`` + ``theta`` (dict with
-   time / metadata (pressure,temp,humidity) / params (16 target cols)).
-3. :class:`TelluricTrainingModule` trains/validates with
-   ``loss = MSE(estimator(...).params, theta["params"])``.
+1. The night-major
+   ``data/telluric_timeseries/telluric_templates.h5`` file contains
+   4500 nights, with 73 frames and 51557 spectral samples per night.
+   It is created once, outside the training pipeline, by
+   ``tests/testing_dataset_reshape.ipynb``, which reshapes the flat
+   ``data/telluric_templates.h5`` file.
 
-Manifest layout (see ``experiments/experiment2.yaml``)::
+2. :class:`TelluricDataModule` loads complete nights and combines each
+   night with a fixed, seeded Phoenix stellar spectrum from
+   ``data/phoenix/convolved``. It returns the observed spectra
+   ``(B, T, N)``, the stellar spectrum ``(B, N)``, and the target
+   parameters in ``theta``:
+   ``time``, ``metadata`` (pressure, temperature, humidity), and
+   ``params`` (16 target parameters).
 
-    run_dir:    # where the artefacts go, e.g. runs/experiment1/
-    wandb:      # -> WandbConfig     (project + run title)
-    model:      # -> ModelConfig     (estimator architecture + dims)
-    data:       # -> DataConfig      (input paths + night-level split)
-        night_h5:     data/telluric_timeseries/telluric_templates.h5
-        phoenix_dir:  data/phoenix/convolved
-    training:   # -> TrainingConfig  (optimiser, epochs, batch size, logging)
+3. :class:`TelluricTrainingModule` trains and validates the estimator
+   using MSE between the predicted and target parameters::
 
-Each run writes a self-describing directory::
+       loss = MSE(estimator(...).params, theta["output_params"])
+
+Configuration
+-------------
+The experiment is defined by a YAML manifest::
+
+    run_dir:    # output directory, e.g. runs/experiment1/
+    wandb:      # WandB project and run name
+    model:      # model architecture and dimensions
+    data:       # input paths and data split
+    training:   # optimizer, epochs, batch size, and logging
+
+Each run creates a self-contained directory::
 
     runs/experiment1/
-    |-- config.yaml               # resolved copy of the manifest
-    |-- stellar_assignment.csv    # night -> star audit
-    |-- logs/                     # W&B local files
-    |-- checkpoints/              # ModelCheckpoint output
+    |-- config.yaml
+    |-- stellar_assignment.csv
+    |-- logs/
+    |-- checkpoints/
 
-The CLI is deliberately tiny -- everything else lives in the manifest::
+Example
+-------
+Run training with::
 
     python -m tellurics.scripts.train --config experiments/experiment1.yaml
+
+Run on CPU or resume from a checkpoint with::
 
     python -m tellurics.scripts.train --config experiments/experiment1.yaml \
         --device cpu --resume runs/experiment1/checkpoints/neural_telluric_predictor/x.ckpt
 """
-
 import argparse
 from pathlib import Path
 
@@ -146,10 +158,6 @@ def build_model(
     data_config: DataConfig | None = None,
 ) -> TelluricTrainingModule:
     """Build the LightningModule (registry-resolved estimator) to train.
-
-    ``data_config`` is used only to build the ``[0, 1]`` label scaler that
-    :meth:`TelluricTrainingModule.predict_physical` needs to report predictions
-    in physical units; training itself never uses it.
     """
     logger.info(
         f"Training {model_config.architecture.value} | "

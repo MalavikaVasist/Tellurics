@@ -1,4 +1,4 @@
-name: tellurics
+﻿name: tellurics
 
 channels:
   - conda-forge
@@ -9,6 +9,7 @@ dependencies:
   - pip=26.1.2
   - matplotlib=3.10.9
   - fortranformat=2.0.3
+  - ipykernel=8.37.0
 
   - pip:
       - astropy==6.1.7
@@ -19,5 +20,7 @@ dependencies:
       - pysynphot==2.0.0
       - PyYAML==6.0.3
       - scipy==1.9.3
-      - setuptools==80.10.2pwd
+      - setuptools==80.10.2
+      - h5py=3.12.1
+
       

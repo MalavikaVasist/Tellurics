@@ -78,15 +78,16 @@ class TelluricTimeseriesDataset(Dataset[dict[str, object]]):
         observed:   (T, N)   X = T_tell * S
         stellar:    (N,)     the S used to build observed
         theta: {
-            "time":     (T,)
-            "metadata": (T, 3)   pressure, temperature, humidity
-            "params":   (T, P)   the P target params
+            "time":          (T,)
+            "metadata":      (T, 3)   pressure, temperature, humidity
+            "output_params": (T, P)   the P regression targets
         }
         night_id:   int      index in [0, n_nights)
         star_index: int      index into the stellar pool
-    With a ``scaler``, ``time`` / ``metadata`` / ``params`` are returned in
-    ``[0, 1]`` instead of physical units (each group independently, according
-    to which ``data.scale_*`` flags were enabled).    """
+    ``time`` and ``metadata`` are model *inputs*; ``output_params`` are the
+    regression *targets* and are never fed to the model. With a ``scaler`` all
+    three are returned in ``[0, 1]`` (each group independently, according to
+    which ``data.scale_*`` flags were enabled).    """
 
     metadata_columns = METADATA_COLUMNS
     time_column = TIME_COLUMN
@@ -168,14 +169,18 @@ class TelluricTimeseriesDataset(Dataset[dict[str, object]]):
         s_t = s[None, :]                              # (1, N)
         observed = trans * s_t                        # (T, N)
 
-        time = lab[:, self._time_idx]                                   # (T,)
-        metadata = lab[:, self._metadata_idx]                           # (T,3)
-        params = lab[:, self._target_idx]                               # (T,P)
+        # Slice ``time_hours`` as (T, 1) so every group handed to the scaler is
+        # 2-D ``(T, P)``; it is squeezed back to (T,) for the model afterwards.
+        time = lab[:, [self._time_idx]]                                 # (T, 1)
+        metadata = lab[:, self._metadata_idx]                           # (T, 3)
+        output_params = lab[:, self._target_idx]                        # (T, P)
 
         if self.scaler is not None:
             metadata = self.scaler.transform_metadata(metadata)
-            params = self.scaler.transform_params(params)
-            time = self.scaler.transform_time(time)
+            output_params = self.scaler.transform_params(output_params)
+            time = self.scaler.transform_time(time)                     # (T, 1)
+
+        time = time[:, 0]                                               # (T,)
 
         return {
             "observed": torch.from_numpy(observed),
@@ -183,7 +188,7 @@ class TelluricTimeseriesDataset(Dataset[dict[str, object]]):
             "theta": {
                 "time": torch.from_numpy(time),
                 "metadata": torch.from_numpy(metadata),
-                "params": torch.from_numpy(params),
+                "output_params": torch.from_numpy(output_params),
             },
             "night_id": night,
             "star_index": star_idx,

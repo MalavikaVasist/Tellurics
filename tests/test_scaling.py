@@ -1,9 +1,9 @@
 """Tests for the [0, 1] label scaling driven by the declared bounds.
 
 Covers the three ``data.scale_*`` switches, the min-max and inverse transforms,
-degenerate (``min == max``) bounds, clipping of out-of-bounds values and the
-split-independence of the mapping. The tests use a tiny synthetic night file, so
-they never touch the multi-GB production HDF5.
+rejection of degenerate (``min == max``) bounds, rejection of out-of-bounds
+values and the split-independence of the mapping. The tests use a tiny synthetic
+night file, so they never touch the multi-GB production HDF5.
 """
 
 from __future__ import annotations
@@ -22,13 +22,17 @@ from tellurics.configs.bounds import (
     TARGET_COLUMNS,
     TIME_COLUMN,
 )
-from tellurics.configs.data import DataConfig
 from tellurics.configs.model import ModelConfig
 from tellurics.configs.training import TrainingConfig
 from tellurics.data.datamodule import build_scaler
 from tellurics.data.datasets.night import TelluricTimeseriesDataset
 from tellurics.data.scaling import MinMax, ParameterScaler
 from tellurics.training.module import TelluricTrainingModule
+
+# ``DataConfig`` below is ``TestDataConfig``: the scaling tests exercise the
+# transform math, not the (manifest-declared) bounds plumbing, so it pins the
+# canonical table while keeping the ``DataConfig(...)`` call sites unchanged.
+from tests._bounds import BOUNDS, TestDataConfig as DataConfig
 
 N_WAVE = 8
 N_FRAMES = 4
@@ -129,13 +133,13 @@ class TestScalingSwitches:
         self, night_file
     ) -> None:
         ds = _dataset(night_file, [0], DataConfig(scale_params=False))
-        params = ds[0]["theta"]["params"].numpy()
+        params = ds[0]["theta"]["output_params"].numpy()
         # Column 0 of TARGET_COLUMNS is pressure, returned raw.
         assert params[:, TARGET_COLUMNS.index("pressure")] == pytest.approx(PRESSURE)
 
     def test_scale_params_true_normalizes_targets(self, night_file) -> None:
         ds = _dataset(night_file, [0], DataConfig(scale_params=True))
-        params = ds[0]["theta"]["params"].numpy()
+        params = ds[0]["theta"]["output_params"].numpy()
         assert params[:, TARGET_COLUMNS.index("pressure")] == pytest.approx(
             [0.0, 0.4, 0.8, 1.0]
         )
@@ -160,7 +164,7 @@ class TestScalingSwitches:
         assert scaler.metadata is None and scaler.params is not None
 
         meta = _dataset(night_file, [0], config)[0]["theta"]["metadata"].numpy()
-        params = _dataset(night_file, [0], config)[0]["theta"]["params"].numpy()
+        params = _dataset(night_file, [0], config)[0]["theta"]["output_params"].numpy()
         assert meta[:, METADATA_COLUMNS.index("pressure")] == pytest.approx(PRESSURE)
         assert params[:, TARGET_COLUMNS.index("pressure")] == pytest.approx(
             [0.0, 0.4, 0.8, 1.0]
@@ -185,7 +189,7 @@ class TestScalingSwitches:
 
         sample = _dataset(night_file, [0], config)[0]
         assert sample["theta"]["time"].numpy() == pytest.approx(TIME_HOURS)
-        assert sample["theta"]["params"].numpy()[
+        assert sample["theta"]["output_params"].numpy()[
             :, TARGET_COLUMNS.index("pressure")
         ] == pytest.approx(PRESSURE)
 
@@ -205,7 +209,7 @@ class TestMinMaxTransform:
         group = MinMax.from_bounds(("pressure",), {"pressure": (600.0, 850.0)})
         value = 725.0
         expected = (value - 600.0) / (850.0 - 600.0)
-        assert group.transform(np.array([value])) == pytest.approx([expected])
+        assert group.transform(np.array([[value]])) == pytest.approx([[expected]])
 
     def test_inverse_is_the_exact_round_trip(self) -> None:
         group = MinMax.from_bounds(
@@ -219,45 +223,31 @@ class TestMinMaxTransform:
 
     def test_dtype_is_preserved(self) -> None:
         group = MinMax.from_bounds(("pressure",), {"pressure": (600.0, 850.0)})
-        assert group.transform(np.array([700.0], np.float32)).dtype == np.float32
+        assert group.transform(np.array([[700.0]], np.float32)).dtype == np.float32
 
-    def test_one_dimensional_input_broadcasts(self) -> None:
-        """The time group has a single column but receives (T,) input."""
+    def test_single_column_group_requires_a_two_dimensional_input(self) -> None:
+        """The time group is (T, 1); a bare (T,) is refused."""
         group = MinMax.from_bounds((TIME_COLUMN,), {TIME_COLUMN: (0.0, 16.0)})
-        assert group.transform(np.array([0.0, 8.0, 16.0])) == pytest.approx(
-            [0.0, 0.5, 1.0]
-        )
+        assert group.transform(
+            np.array([[0.0], [8.0], [16.0]])
+        ) == pytest.approx([[0.0], [0.5], [1.0]])
+        with pytest.raises(ValueError, match="expected a last axis of 1"):
+            group.transform(np.array([0.0, 8.0, 16.0]))
 
-    def test_values_outside_the_bounds_are_clipped(self) -> None:
+    def test_values_outside_the_bounds_raise(self) -> None:
         group = MinMax.from_bounds(("o3",), {"o3": (0.018, 0.042)})
         # 0.0428 is the largest stored o3 value (the generator perturbs nightly
         # abundances by up to +/-2 %, so a few frames exceed the envelope).
-        scaled = group.transform(np.array([0.017, 0.0428]))
-        assert scaled == pytest.approx([0.0, 1.0])
-        assert group.count_out_of_bounds(np.array([0.017, 0.0428])) == 2
-        assert group.count_out_of_bounds(np.array([0.02, 0.042])) == 0
+        values = np.array([[0.017], [0.0428]])
+        with pytest.raises(ValueError, match="outside the declared"):
+            group.transform(values)
+        assert group.count_out_of_bounds(values) == 2
+        assert group.count_out_of_bounds(np.array([[0.02], [0.042]])) == 0
 
-    def test_clip_can_be_disabled(self) -> None:
-        group = MinMax.from_bounds(("o3",), {"o3": (0.018, 0.042)})
-        assert group.transform(np.array([0.0428]), clip=False)[0] > 1.0
-
-    def test_degenerate_bounds_do_not_divide_by_zero(self) -> None:
-        """``min == max`` (a constant parameter) maps to 0 and inverts to min."""
-        group = MinMax.from_bounds(("co",), {"co": (0.14, 0.14)})
-        scaled = group.transform(np.array([0.14, 0.14]))
-        assert np.all(np.isfinite(scaled))
-        assert scaled == pytest.approx([0.0, 0.0])
-        assert group.inverse(scaled) == pytest.approx([0.14, 0.14])
-
-    def test_degenerate_and_normal_columns_coexist(self) -> None:
-        group = MinMax.from_bounds(
-            ("co", "pressure"), {"co": (0.14, 0.14), "pressure": (600.0, 850.0)}
-        )
-        scaled = group.transform(np.array([[0.14, 600.0], [0.14, 850.0]]))
-        np.testing.assert_allclose(scaled, [[0.0, 0.0], [0.0, 1.0]])
-        np.testing.assert_allclose(
-            group.inverse(scaled), [[0.14, 600.0], [0.14, 850.0]]
-        )
+    def test_degenerate_bounds_are_rejected(self) -> None:
+        """``min == max`` has no scale, so it must not build a group."""
+        with pytest.raises(ValueError, match="min < max"):
+            MinMax.from_bounds(("co",), {"co": (0.14, 0.14)})
 
     def test_missing_bounds_raise(self) -> None:
         with pytest.raises(KeyError):
@@ -299,7 +289,9 @@ class TestSplitIndependence:
     def test_different_bounds_give_different_scaling(self) -> None:
         """700 hPa sits at 0.4 of [600, 850] but at 0.0 of [700, 750]."""
         wide = build_scaler(DataConfig())
-        narrow = build_scaler(DataConfig(param_bounds={"pressure": (700.0, 750.0)}))
+        narrow = build_scaler(
+            DataConfig(param_bounds={**BOUNDS, "pressure": (700.0, 750.0)})
+        )
         assert _scaled(wide, "pressure", 700.0) == pytest.approx(0.4)
         assert _scaled(narrow, "pressure", 700.0) == pytest.approx(0.0)
 
@@ -312,10 +304,10 @@ class TestSplitIndependence:
         val = _dataset(night_file, [1], config)
         # Night 1 has constant pressure 725 hPa; (725-600)/250 = 0.5 either way.
         expected = 0.5
-        assert train[1]["theta"]["params"].numpy()[
+        assert train[1]["theta"]["output_params"].numpy()[
             :, TARGET_COLUMNS.index("pressure")
         ] == pytest.approx(expected)
-        assert val[0]["theta"]["params"].numpy()[
+        assert val[0]["theta"]["output_params"].numpy()[
             :, TARGET_COLUMNS.index("pressure")
         ] == pytest.approx(expected)
 
@@ -363,7 +355,7 @@ class TestParameterScalerGroups:
     def test_dataset_tensors_are_float32_and_finite(self, night_file) -> None:
         ds = _dataset(night_file, [0], DataConfig())
         sample = ds[0]
-        for key in ("time", "metadata", "params"):
+        for key in ("time", "metadata", "output_params"):
             tensor = sample["theta"][key]
             assert tensor.dtype == torch.float32
             assert torch.isfinite(tensor).all()
@@ -371,7 +363,7 @@ class TestParameterScalerGroups:
     def test_scaled_targets_stay_within_the_unit_interval(self, night_file) -> None:
         """The sigmoid head can only reach such targets."""
         sample = _dataset(night_file, [0], DataConfig())[0]
-        params = sample["theta"]["params"]
+        params = sample["theta"]["output_params"]
         assert bool(((params >= 0.0) & (params <= 1.0)).all())
         assert bool(
             ((sample["theta"]["metadata"] >= 0.0)
@@ -381,7 +373,7 @@ class TestParameterScalerGroups:
     def test_inverse_params_recovers_physical_units_torch(self, night_file) -> None:
         scaler = build_scaler(DataConfig())
         ds = _dataset(night_file, [0], DataConfig())
-        params = ds[0]["theta"]["params"]
+        params = ds[0]["theta"]["output_params"]
         physical = scaler.inverse_params_torch(params)
         assert physical.numpy()[
             :, TARGET_COLUMNS.index("pressure")
@@ -450,7 +442,7 @@ class TestTrainingPipelineWithScaledTargets:
         module = _training_module()
         batch = _batch(night_file)
         pred = module._run_estimator(batch).params
-        target = batch["theta"]["params"]
+        target = batch["theta"]["output_params"]
 
         assert bool(((pred >= 0.0) & (pred <= 1.0)).all())
         assert bool(((target >= 0.0) & (target <= 1.0)).all())

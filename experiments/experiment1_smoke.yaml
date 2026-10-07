@@ -50,11 +50,31 @@ data:
   night_h5: data/telluric_timeseries/telluric_templates.h5   # built by tests/testing_dataset_reshape.ipynb
   phoenix_dir: data/phoenix/convolved    # stellar *.fits pool
   stellar_scale: true                    # normalize each stellar spectrum to unit mean flux
-  # [0, 1] label scaling; bounds are the code defaults (see experiment1.yaml for
-  # the full, annotated table and tellurics.configs.bounds for the authority).
+  # [0, 1] label scaling; the bounds are REQUIRED here (there is no code default)
+  # -- the schema/column order comes from tellurics.configs.bounds.ParameterBounds,
+  # the values from this table (see experiment1.yaml for the annotated version).
   scale_metadata: true                   # metadata -> [0,1]
   scale_params: true                     # targets  -> [0,1] (pairs with param_activation: sigmoid)
   scale_time: true                       # time_hours / 16 -> [0,1]
+  param_bounds:
+    time_hours: [0.0, 6.0]              # h    
+    pressure: [600.0, 850.0]             # hPa
+    temperature: [233.15, 318.15]        # K    (-40 .. +45 degC)
+    humidity: [0.0, 100.0]               # %
+    angle: [0.0, 90.0]                   # deg  (zenith angle)
+    airmass: [1.0, 2.0]                  # sec(z), altitude >= 30 deg
+    co2: [420.0, 435.0]                  # ppmv
+    o3: [0.018, 0.0429]                  # ppmv
+    n2o: [0.335, 0.345]                  # ppmv
+    co: [0.088, 0.169]                   # ppmv
+    ch4: [1.90, 1.98]                    # ppmv
+    o2: [205800.0, 214200.0]             # ppmv
+    "no": [1.0e-19, 1.2e-5]             # ppmv (log-uniform in the generator; quoted key: bare 'no' is YAML boolean False)
+    so2: [9.8e-5, 1.02e-4]               # ppmv
+    no2: [2.57e-5, 1.0e-4]               # ppmv
+    nh3: [9.8e-5, 1.02e-4]               # ppmv
+    hno3: [1.74e-5, 5.6e-4]              # ppmv
+
   max_nights: 10                        # smoke/debug subset: first 10 nights only
   train_fraction: 0.8                    # -> 80 train nights
   val_fraction: 0.1                      # -> 10 val nights (10 test nights)
@@ -63,7 +83,7 @@ data:
 
 training:
   optimizer:
-    optimizer_type: adamw                # OptimizerType enum value
+    optimizer_type: adam                 # OptimizerType enum value (adam | sgd)
     learning_rate: 1e-4
     weight_decay: 1e-4
   scheduler:
