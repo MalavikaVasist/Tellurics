@@ -3,7 +3,7 @@
 #   X = T*S  (B, T=73, N=51557)        ->  param_pred (B, T, 16)
 #   metadata (B, T, 3)  per exposure        loss = MSE(param_input - param_pred)
 #
-# Pipeline (tellurics.models.night.NeuralTelluricPredictor, registry id
+# Pipeline (tellurics.models.predictor.NeuralTelluricPredictor, registry id
 # "neural_telluric_predictor"):
 #   1. shared 1D-CNN encodes each exposure of X       ->  Z (B, 73, 64)
 #   2. MetadataEncoder maps per-exposure metadata to a 16-dim code

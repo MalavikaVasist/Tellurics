@@ -1,6 +1,6 @@
 """Canonical ``data.param_bounds`` table used to build configs in the tests.
 
-The bounds are no longer hard-coded in :mod:`tellurics.configs.bounds`: every
+The bounds are no longer hard-coded in :mod:`tellurics.config.parameters`: every
 experiment declares them explicitly in its manifest under ``data.param_bounds``
 (see ``experiments/experiment1.yaml``). The tests assert exact scaled values, so
 they build their configs from this fixed table instead of reading a manifest
@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from pydantic import Field
 
-from tellurics.configs.bounds import ParameterBounds
-from tellurics.configs.data import DataConfig
+from tellurics.config.parameters import Parameters
+from tellurics.config.data import DataConfig
 
 # The production envelope (see experiments/experiment1.yaml). ``time_hours``
 # keeps the original [0, 16] so the tests can assert ``time_hours / 16``.
@@ -46,6 +46,6 @@ class TestDataConfig(DataConfig):
     while still allowing a full per-test override.
     """
 
-    param_bounds: ParameterBounds = Field(
-        default_factory=lambda: ParameterBounds(**BOUNDS)
+    param_bounds: Parameters = Field(
+        default_factory=lambda: Parameters(**BOUNDS)
     )

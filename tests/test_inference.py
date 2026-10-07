@@ -2,8 +2,8 @@
 
 import torch
 
-from tellurics.configs.model import ModelArchitecture, ModelConfig
-from tellurics.models.night import NeuralTelluricPredictor
+from tellurics.config.model import ModelArchitecture, ModelConfig
+from tellurics.models.predictor import NeuralTelluricPredictor
 from tellurics.models.output import ModelOutput
 
 

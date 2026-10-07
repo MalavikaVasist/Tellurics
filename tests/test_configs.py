@@ -2,14 +2,14 @@
 
 import pytest
 
-from tellurics.configs.bounds import (
+from tellurics.config.parameters import (
     PHYSICAL_COLUMNS,
     TARGET_COLUMNS,
     TIME_COLUMN,
 )
-from tellurics.configs.data import DataConfig
-from tellurics.configs.model import ModelArchitecture, ModelConfig, ParamActivation
-from tellurics.configs.training import TrainingConfig
+from tellurics.config.data import DataConfig
+from tellurics.config.model import ModelArchitecture, ModelConfig, ParamActivation
+from tellurics.config.training import TrainingConfig
 from tests._bounds import BOUNDS
 
 # Every ModelConfig field, with the problem dims kept tiny.
@@ -115,7 +115,7 @@ class TestDataConfigScaling:
         assert config.param_bounds.airmass == (1.0, 2.0)
 
     def test_missing_bounds_are_rejected(self) -> None:
-        """Every bound must be stated: ParameterBounds carries no defaults."""
+        """Every bound must be stated: Parameters carries no defaults."""
         incomplete = {k: v for k, v in BOUNDS.items() if k != "pressure"}
         with pytest.raises(ValueError):
             DataConfig(param_bounds=incomplete)

@@ -26,7 +26,7 @@ pip install -e ".[dev]"
 
 ```python
 from tellurics.inference import InferencePipeline
-from tellurics.configs import InferenceConfig
+from tellurics.config import InferenceConfig
 
 config = InferenceConfig(checkpoint_path="path/to/model.ckpt")
 pipeline = InferencePipeline(config)

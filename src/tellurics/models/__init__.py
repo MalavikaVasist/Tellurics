@@ -13,7 +13,7 @@ from tellurics.models.encoders import (
     TimeEncoder,
 )
 from tellurics.models.fusion import FusionMLP
-from tellurics.models.night import NeuralTelluricPredictor
+from tellurics.models.predictor import NeuralTelluricPredictor
 from tellurics.models.output import ModelOutput
 from tellurics.models.temporal import (
     MultiHeadCrossAttention,

@@ -16,16 +16,16 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
-from tellurics.configs.bounds import (
+from tellurics.config.parameters import (
     METADATA_COLUMNS,
     PHYSICAL_COLUMNS,
     TARGET_COLUMNS,
     TIME_COLUMN,
 )
-from tellurics.configs.model import ModelConfig
-from tellurics.configs.training import TrainingConfig
+from tellurics.config.model import ModelConfig
+from tellurics.config.training import TrainingConfig
 from tellurics.data.datamodule import build_scaler
-from tellurics.data.datasets.night import TelluricTimeseriesDataset
+from tellurics.data.datasets.timeseries import TelluricTimeseriesDataset
 from tellurics.data.scaling import MinMax, ParameterScaler
 from tellurics.training.module import TelluricTrainingModule
 

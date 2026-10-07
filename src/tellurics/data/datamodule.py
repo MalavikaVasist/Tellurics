@@ -5,7 +5,7 @@ Composes the pieces of :mod:`tellurics.data`:
     wavegrid.Wavegrid                           the shared wavelength grid
     stellar.StellarPool                         the Phoenix spectrum pool
     splits.split_night_indices                  night-level train/val/test split
-    datasets.night.TelluricTimeseriesDataset    one sample = one whole night
+    datasets.timeseries.TelluricTimeseriesDataset    one sample = one whole night
 
 Each night is multiplied by a single, fixed, seeded stellar spectrum:
 ``observed = transmission * S``. The night -> star mapping (with its split) is
@@ -14,7 +14,7 @@ written to ``<run_dir>/stellar_assignment.csv`` for auditing.
 Optionally (``data.scale_metadata`` / ``data.scale_params`` / ``data.scale_time``)
 the per-exposure metadata, the target parameters and ``time_hours`` are mapped
 onto ``[0, 1]`` with the physical bounds declared in the manifest
-(``data.param_bounds``, see :mod:`tellurics.configs.bounds`). The bounds are
+(``data.param_bounds``, see :mod:`tellurics.config.parameters`). The bounds are
 config, not statistics, so the mapping is identical for train/val/test and for
 any ``max_nights`` subset; the same bounds invert predictions back to physical
 units (:meth:`tellurics.data.scaling.ParameterScaler.inverse_params`).
@@ -32,8 +32,8 @@ import numpy as np
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader, Dataset
 
-from tellurics.configs.data import DataConfig
-from tellurics.data.datasets.night import (
+from tellurics.config.data import DataConfig
+from tellurics.data.datasets.timeseries import (
     METADATA_COLUMNS,
     TARGET_COLUMNS,
     TIME_COLUMN,

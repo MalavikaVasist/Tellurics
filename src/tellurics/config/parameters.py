@@ -5,7 +5,7 @@ The bounds are declared in the experiment YAML file under
 canonical order, and checks that every bound is finite and satisfies
 ``min < max``.
 
-The field order of :class:`ParameterBounds` defines:
+The field order of :class:`Parameters` defines:
 
 - ``PHYSICAL_COLUMNS``: all physical parameter names.
 - ``TARGET_COLUMNS``: parameters predicted by the model.
@@ -21,7 +21,7 @@ import math
 from pydantic import BaseModel, ValidationInfo, field_validator
 
 __all__ = [
-    "ParameterBounds",
+    "Parameters",
     "PHYSICAL_COLUMNS",
     "TARGET_COLUMNS",
     "METADATA_COLUMNS",
@@ -35,7 +35,7 @@ TIME_COLUMN = "time_hours"
 METADATA_COLUMNS = ("pressure", "temperature", "humidity")
 
 
-class ParameterBounds(BaseModel):
+class Parameters(BaseModel):
     """Physical ``[min, max]`` bounds for all model parameters.
 
     Bounds are provided by the experiment configuration.
@@ -89,7 +89,7 @@ class ParameterBounds(BaseModel):
 
 
 # The schema derived from the bound declarations (canonical order preserved).
-PHYSICAL_COLUMNS: tuple[str, ...] = ParameterBounds.column_names()
+PHYSICAL_COLUMNS: tuple[str, ...] = Parameters.column_names()
 TARGET_COLUMNS: tuple[str, ...] = tuple(
     c for c in PHYSICAL_COLUMNS if c != TIME_COLUMN 
 )

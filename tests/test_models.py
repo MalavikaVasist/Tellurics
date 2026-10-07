@@ -32,7 +32,7 @@ class TestModelRegistry:
         assert ModelRegistry.list_models() == ["neural_telluric_predictor"]
 
     def test_get_model(self) -> None:
-        from tellurics.models.night import NeuralTelluricPredictor
+        from tellurics.models.predictor import NeuralTelluricPredictor
 
         assert (
             ModelRegistry.get("neural_telluric_predictor")

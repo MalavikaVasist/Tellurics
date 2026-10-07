@@ -1,6 +1,6 @@
 """Datasets: one sample = one whole night."""
 
-from tellurics.data.datasets.night import (
+from tellurics.data.datasets.timeseries import (
     METADATA_COLUMNS,
     PHYSICAL_COLUMNS,
     TARGET_COLUMNS,

@@ -24,8 +24,8 @@ import torch
 import torch.nn.functional as F
 import pytorch_lightning as pl
 
-from tellurics.configs.model import ModelConfig
-from tellurics.configs.training import OptimizerType, SchedulerType, TrainingConfig
+from tellurics.config.model import ModelConfig
+from tellurics.config.training import OptimizerType, SchedulerType, TrainingConfig
 from tellurics.data.scaling import ParameterScaler
 from tellurics.models.output import ModelOutput
 from tellurics.utils.logging import get_logger

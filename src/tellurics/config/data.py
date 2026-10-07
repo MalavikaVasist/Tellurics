@@ -11,7 +11,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field, model_validator
 
-from tellurics.configs.bounds import ParameterBounds
+from tellurics.config.parameters import Parameters
 
 
 class DataConfig(BaseModel):
@@ -58,11 +58,11 @@ class DataConfig(BaseModel):
         description="Map ``time_hours`` onto [0, 1] with its ``param_bounds`` "
                     "envelope (default [0, 16], i.e. time_hours / 16).",
     )
-    param_bounds: ParameterBounds = Field(
+    param_bounds: Parameters = Field(
         description="Authoritative physical [min, max] bounds of every "
                     "parameter, declared explicitly here (there is no code "
                     "default -- the schema/column order comes from "
-                    "tellurics.configs.bounds.ParameterBounds, the values from "
+                    "tellurics.config.parameters.Parameters, the values from "
                     "this table). They drive the [0, 1] scaling, the validation "
                     "of the stored labels, and the inverse transform that "
                     "returns predictions to physical units. Declaring them "

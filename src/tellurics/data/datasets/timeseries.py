@@ -2,12 +2,12 @@
 
 Reads the night-major HDF5 built once by ``tests/testing_dataset_reshape.ipynb``
 (``transmission`` / ``labels`` / ``wavelength``) and turns each night into the
-inputs the :class:`~tellurics.models.night.NeuralTelluricPredictor` consumes.
+inputs the :class:`~tellurics.models.predictor.NeuralTelluricPredictor` consumes.
 
 When a :class:`~tellurics.data.scaling.ParameterScaler` is supplied, the
 per-exposure metadata, the target parameters and ``time_hours`` are mapped onto
 ``[0, 1]`` with the fixed physical bounds declared in
-:mod:`tellurics.configs.bounds`. That keeps ``MSE(param_pred, params)`` on a
+:mod:`tellurics.config.parameters`. That keeps ``MSE(param_pred, params)`` on a
 single scale and makes the bounded (``sigmoid``) head able to reach the
 targets; predictions come back to physical units via
 :meth:`ParameterScaler.inverse_params`.
@@ -21,7 +21,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from tellurics.configs.bounds import (
+from tellurics.config.parameters import (
     METADATA_COLUMNS,
     PHYSICAL_COLUMNS,
     TARGET_COLUMNS,
@@ -34,7 +34,7 @@ from tellurics.data.stellar import StellarPool
 # Column book-keeping
 # --------------------------------------------------------------------------- #
 # The schema and the physical bounds of every column live together in
-# tellurics.configs.bounds -- the source of truth shared with the config's
+# tellurics.config.parameters -- the source of truth shared with the config's
 # ``data.param_bounds`` -- so the bounds and the index layout can never
 # disagree. The names are re-exported here because this module publishes the
 # data contract (and did own them before).

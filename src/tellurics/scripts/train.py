@@ -63,7 +63,7 @@ from pytorch_lightning.callbacks import (
 )
 from pytorch_lightning.loggers import WandbLogger
 
-from tellurics.configs import (
+from tellurics.config import (
     DataConfig,
     ExperimentConfig,
     ModelConfig,

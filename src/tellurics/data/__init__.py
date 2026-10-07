@@ -1,7 +1,7 @@
 """Whole-night telluric data: the dataset, its DataModule, and its pieces.
 
     datamodule.py          Lightning orchestration (TelluricDataModule)
-    datasets/night.py      one sample = one whole night
+    datasets/timeseries.py one sample = one whole night
     scaling.py             [0, 1] min-max scaling from the declared bounds
     stellar.py             StellarPool + per-night star assignment
     splits.py              night-level train/val/test split
@@ -9,7 +9,7 @@
 """
 
 from tellurics.data.datamodule import TelluricDataModule, build_scaler
-from tellurics.data.datasets.night import (
+from tellurics.data.datasets.timeseries import (
     METADATA_COLUMNS,
     PHYSICAL_COLUMNS,
     TARGET_COLUMNS,

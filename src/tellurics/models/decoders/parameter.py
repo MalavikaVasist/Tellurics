@@ -5,7 +5,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from tellurics.configs.model import ParamActivation
+from tellurics.config.model import ParamActivation
 
 __all__ = ["ParamDecoder"]
 

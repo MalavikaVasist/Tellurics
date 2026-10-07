@@ -51,7 +51,7 @@ data:
   phoenix_dir: data/phoenix/convolved    # stellar *.fits pool
   stellar_scale: true                    # normalize each stellar spectrum to unit mean flux
   # [0, 1] label scaling; the bounds are REQUIRED here (there is no code default)
-  # -- the schema/column order comes from tellurics.configs.bounds.ParameterBounds,
+  # -- the schema/column order comes from tellurics.config.parameters.Parameters,
   # the values from this table (see experiment1.yaml for the annotated version).
   scale_metadata: true                   # metadata -> [0,1]
   scale_params: true                     # targets  -> [0,1] (pairs with param_activation: sigmoid)

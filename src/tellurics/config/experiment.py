@@ -7,10 +7,10 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, Field, model_validator
 
-from tellurics.configs.data import DataConfig
-from tellurics.configs.model import ModelConfig, ParamActivation
-from tellurics.configs.training import TrainingConfig
-from tellurics.configs.wandb import WandbConfig
+from tellurics.config.data import DataConfig
+from tellurics.config.model import ModelConfig, ParamActivation
+from tellurics.config.training import TrainingConfig
+from tellurics.config.wandb import WandbConfig
 from tellurics.utils.logging import get_logger
 
 logger = get_logger(__name__)

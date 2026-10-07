@@ -6,9 +6,9 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from tellurics.configs.model import ModelConfig, ParamActivation
+from tellurics.config.model import ModelConfig, ParamActivation
 from tellurics.models.decoders import ParamDecoder
-from tellurics.models.night import NeuralTelluricPredictor
+from tellurics.models.predictor import NeuralTelluricPredictor
 from tellurics.models.output import ModelOutput
 from tellurics.utils.registry import ModelRegistry
 

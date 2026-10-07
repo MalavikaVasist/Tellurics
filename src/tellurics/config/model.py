@@ -39,7 +39,7 @@ class ModelConfig(BaseModel):
 
     No field carries a default: every value is a design or data decision and
     must be stated by the manifest (see ``experiments/``).  All fields are
-    consumed by :mod:`tellurics.models.night`; see that module's docstring for
+    consumed by :mod:`tellurics.models.predictor`; see that module's docstring for
     the shape-annotated data flow.
     """
 

@@ -15,10 +15,10 @@ Two modes:
 Typical usage
 -------------
     # exact full-resolution shape + parameter report
-    python scripts/verify_temporal_model.py --mode shape
+    python tools/verify_temporal_model.py --mode shape
 
     # fast overfit demo (reduced wavelength grid keeps CPU time sane)
-    python scripts/verify_temporal_model.py --mode overfit \
+    python tools/verify_temporal_model.py --mode overfit \
         --n-wavelength 2048 --nights 6 --steps 80 --lambda-x 0.0
 
 Everything is CPU-safe; the batch size is never hard-coded.
@@ -33,8 +33,8 @@ import time
 import torch
 import torch.nn.functional as F
 
-from tellurics.configs.model import ModelConfig
-from tellurics.models.night import NeuralTelluricPredictor as TelluricModel
+from tellurics.config.model import ModelConfig
+from tellurics.models.predictor import NeuralTelluricPredictor as TelluricModel
 
 
 def _tiny_config(
