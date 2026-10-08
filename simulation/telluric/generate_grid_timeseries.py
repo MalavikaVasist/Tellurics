@@ -8,7 +8,8 @@ ai-tfm-tellurics project, ported to the Tellurics repo conventions:
 
 - shared spectral utilities from ``simulation.utils.spectral``
 - output under ``data/telluric_timeseries/``
-- TelFit source resolved from the repo's vendored ``TelFit/src``
+- TelFit source resolved from ``$TELFIT_HOME``
+  (default ``<repo>/../Tellurics_data/telfit``)
 
 Difference from ``generate_grid.py``
 ------------------------------------
@@ -64,13 +65,14 @@ import numpy as np
 # Make the repo root importable so `simulation` is a package when run as a script
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT))
+from simulation.utils.running_hpc import create_slurm_workspace
 from simulation.utils.spectral import build_constant_R_grid, convolve_and_resample
 from simulation.utils.site_parameters import (
     read_condition_layout,
     load_condition_sample,
     MOLECULES,
 )
-from simulation.utils.running_hpc import create_slurm_workspace
+from simulation.utils.telfit_home import add_telfit_to_path
 
 
 # === Configuration ===
@@ -81,8 +83,8 @@ DEFAULT_CONDITIONS_H5 = (
 )
 DEFAULT_OUTDIR = REPO_ROOT / "data" / "telluric_timeseries"
 
-# TelFit source (vendored software)
-TELFIT_SRC = REPO_ROOT / "TelFit" / "src"
+# TelFit lives outside the repo; its ``src`` is resolved from $TELFIT_HOME (see
+# simulation.utils.telfit_home) and added to sys.path in ``generate_batch``.
 
 # Wavelength range (nm) and target resolution (must match Phoenix pool)
 WAVESTART_NM = 800.0008011
@@ -128,7 +130,7 @@ def generate_batch(
     warnings.filterwarnings("ignore", message="PYSYN_CDBS is undefined.*")
     warnings.filterwarnings("ignore", message="Extinction files not found.*")
 
-    sys.path.insert(0, str(TELFIT_SRC))
+    add_telfit_to_path()
     from telfit import Modeler
 
     chunks_dir = outdir / "chunks"

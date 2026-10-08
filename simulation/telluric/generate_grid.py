@@ -28,8 +28,9 @@ from tqdm import tqdm
 # Make the repo root importable so `simulation` is a package when run as a script
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT))
-from simulation.utils.spectral import build_constant_R_grid, convolve_and_resample
 from simulation.utils.running_hpc import create_slurm_workspace
+from simulation.utils.spectral import build_constant_R_grid, convolve_and_resample
+from simulation.utils.telfit_home import add_telfit_to_path
 
 
 # === Configuration ===
@@ -71,8 +72,8 @@ REPO_ROOT = _REPO_ROOT
 OUTDIR = REPO_ROOT / "data" / "telluric"
 CHUNKS_DIR = OUTDIR / "chunks"
 
-# TelFit source (vendored software)
-TELFIT_SRC = REPO_ROOT / "TelFit" / "src"
+# TelFit lives outside the repo; its ``src`` is resolved from $TELFIT_HOME (see
+# simulation.utils.telfit_home) and added to sys.path in ``generate_batch``.
 
 
 def get_output_wavegrid():
@@ -101,7 +102,7 @@ def generate_all_samples(n_samples, seed=42):
 
 def generate_batch(array_index: int, n_samples: int, batch_size: int, seed: int = 42):
     """Generate a single batch of telluric models and save to HDF5 chunk."""
-    sys.path.insert(0, str(TELFIT_SRC))
+    add_telfit_to_path()
     from telfit import Modeler
 
     OUTDIR.mkdir(exist_ok=True)

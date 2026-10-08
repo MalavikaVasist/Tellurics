@@ -30,6 +30,16 @@ resolution element, 0.8-0.95 um), built by `build_constant_R_grid` in
 convolved with a Gaussian instrumental profile (FWHM = 1/R in ln-lambda)
 before being resampled onto this grid.
 
+## TelFit (external)
+
+The TelFit distribution is not vendored in this repo. The telluric generators
+(`simulation/telluric/*.py`) resolve it via `simulation/utils/telfit_home.py`:
+`$TELFIT_HOME` if set, else `<repo>/../Tellurics_data/telfit`.
+
+```bash
+export TELFIT_HOME=/scratch/<user>/Tellurics_data/telfit   # contains src/ and data/
+```
+
 ## Usage
 
 ```bash

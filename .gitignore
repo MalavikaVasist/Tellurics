@@ -10,7 +10,6 @@ build/
 # Cython / compiled extensions
 *.so
 *.c
-!TelFit/src/FittingUtilities.pyx
 
 # Virtual environments
 .venv/
@@ -29,25 +28,14 @@ env/
 *.npy
 *.npz
 
-# Phoenix stellar spectra (large, downloaded separately)
-/phoenix/
-
-
 # Generated simulation data (downloaded/produced, not source)
 # "/data/" is anchored to the repo root; an unanchored "data/" would also
-# match the source package src/tellurics/data/ and TelFit/data/.
+# match the source package src/tellurics/data/.
 /data/
 !/src/tellurics/data/
 
-# Vendored TelFit reference data
-/TelFit/data/
-
-# TelFit telluric template outputs
-TelFit/telluric_templates/
-
-# SLURM logs and TelFit runtime logs
+# SLURM logs
 slurm-*.out
-/TelFit/*.log
 
 # Training outputs
 runs/
