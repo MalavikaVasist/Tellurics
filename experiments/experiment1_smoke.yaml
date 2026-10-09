@@ -47,8 +47,8 @@ model:
   fusion_layers: 2
 
 data:
-  night_h5: data/telluric_timeseries/telluric_templates.h5   # built by tests/testing_dataset_reshape.ipynb
-  phoenix_dir: data/phoenix/convolved    # stellar *.fits pool
+  night_h5: Tellurics_data/telluric_timeseries/telluric_templates_nights.h5   # built by tests/testing_dataset_reshape.ipynb
+  phoenix_dir: Tellurics_data/phoenix/convolved    # stellar *.fits pool
   stellar_scale: true                    # normalize each stellar spectrum to unit mean flux
   # [0, 1] label scaling; the bounds are REQUIRED here (there is no code default)
   # -- the schema/column order comes from tellurics.config.parameters.Parameters,
